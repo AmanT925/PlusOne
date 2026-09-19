@@ -65,3 +65,25 @@ Put the printed `https://...` URL into the Linq webhook subscription. Leave uvic
 ## Brain
 
 `server/brain_adapter.py` imports `brain.brain` in-process. If those functions still raise `NotImplementedError`, Core uses local stubs. `context_for` always runs before `write_whisper`.
+
+## Part B — Grok Voice / Imagine (`feat/voice-sponsors`)
+
+Whisper **text** always sends (websocket + Linq). When `XAI_API_KEY` is set:
+
+1. **Grok Voice** — `POST https://api.x.ai/v1/tts` on the server. MP3 is cached at `GET /media/{token}` and, for Linq DMs, uploaded then sent as an iMessage voice memo.
+2. **Expo** — websocket whisper may include optional `audio_url` (`/media/...` or absolute if `PLUSONE_PUBLIC_BASE_URL` is set). Tap **Play** in the app.
+3. **Imagine fallback** — if Voice fails/times out, one Grok Imagine still is sent to the **group** thread (once per room).
+
+Demo one-shots (screenshot + working call):
+
+```bash
+curl -X POST http://localhost:8000/demo/sponsors/voice \
+  -H 'content-type: application/json' \
+  -d '{"text":"Keep the weekend under one-fifty."}'
+
+curl -X POST http://localhost:8000/demo/sponsors/imagine \
+  -H 'content-type: application/json' \
+  -d '{"proposal":"cabin weekend under $150"}'
+```
+
+`GET /health` reports `xai` / `voice` / `imagine`.

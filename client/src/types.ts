@@ -7,11 +7,11 @@ export type ClientToServer = {
 };
 
 export type ServerToClient =
-  | { type: 'whisper'; text: string }
+  | { type: 'whisper'; text: string; audio_url?: string }
   | { type: 'public'; speaker: string; text: string }
   | { type: 'counter'; shared: number; total: number };
 
 export type LogLine =
   | { kind: 'public'; speaker: string; text: string }
-  | { kind: 'whisper'; text: string }
+  | { kind: 'whisper'; text: string; audioUrl?: string }
   | { kind: 'you'; visibility: string; text: string };

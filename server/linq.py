@@ -220,3 +220,124 @@ class LinqClient:
                 log.warning("linq send failed %s %s", response.status_code, response.text)
         except httpx.HTTPError:
             log.exception("linq send request failed")
+
+    async def upload_attachment(
+        self,
+        data: bytes,
+        *,
+        filename: str,
+        content_type: str,
+    ) -> dict[str, str] | None:
+        """Pre-upload bytes via POST /v3/attachments → PUT upload_url. Returns ids/urls."""
+        if not self.enabled():
+            return None
+        if not data:
+            return None
+        meta_body = {
+            "filename": filename,
+            "content_type": content_type,
+            "size_bytes": len(data),
+        }
+        try:
+            meta = await self._http.post(
+                f"{LINQ_API}/attachments",
+                headers=self._headers(),
+                content=json.dumps(meta_body),
+            )
+            if meta.status_code >= 400:
+                log.warning("linq attachment create failed %s %s", meta.status_code, meta.text)
+                return None
+            info = meta.json()
+            upload_url = info.get("upload_url")
+            attachment_id = info.get("attachment_id")
+            required = info.get("required_headers") or {}
+            if not upload_url or not attachment_id:
+                log.warning("linq attachment create missing fields: %s", info)
+                return None
+            headers = {str(k): str(v) for k, v in required.items()}
+            put = await self._http.put(upload_url, content=data, headers=headers)
+            if put.status_code >= 400:
+                log.warning("linq attachment upload failed %s %s", put.status_code, put.text)
+                return None
+            return {
+                "attachment_id": str(attachment_id),
+                "download_url": str(info.get("download_url") or ""),
+            }
+        except httpx.HTTPError:
+            log.exception("linq attachment upload failed")
+            return None
+
+    async def send_voice_memo(
+        self,
+        *,
+        chat_id: str,
+        attachment_id: str | None = None,
+        voice_memo_url: str | None = None,
+    ) -> bool:
+        """iMessage native voice-memo bubble. Prefer attachment_id after upload."""
+        if not self.enabled() or not chat_id:
+            return False
+        if bool(attachment_id) == bool(voice_memo_url):
+            log.warning("linq voice memo needs exactly one of attachment_id or voice_memo_url")
+            return False
+        body: dict[str, Any] = {}
+        if attachment_id:
+            body["attachment_id"] = attachment_id
+        else:
+            body["voice_memo_url"] = voice_memo_url
+        url = f"{LINQ_API}/chats/{chat_id}/voicememo"
+        try:
+            response = await self._http.post(url, headers=self._headers(), content=json.dumps(body))
+            if response.status_code >= 400:
+                log.warning("linq voice memo failed %s %s", response.status_code, response.text)
+                return False
+            return True
+        except httpx.HTTPError:
+            log.exception("linq voice memo request failed")
+            return False
+
+    async def send_media(
+        self,
+        *,
+        chat_id: str | None = None,
+        to: str | None = None,
+        media_url: str | None = None,
+        attachment_id: str | None = None,
+        caption: str | None = None,
+    ) -> bool:
+        """Send an image/audio file via a media part (group Imagine stills, etc.)."""
+        if not self.enabled():
+            return False
+        if bool(media_url) == bool(attachment_id):
+            log.warning("linq send_media needs exactly one of media_url or attachment_id")
+            return False
+        parts: list[dict[str, Any]] = []
+        if caption:
+            parts.append({"type": "text", "value": caption})
+        media: dict[str, Any] = {"type": "media"}
+        if attachment_id:
+            media["attachment_id"] = attachment_id
+        else:
+            media["url"] = media_url
+        parts.append(media)
+        body: dict[str, Any] = {"message": {"parts": parts}}
+        from_number = os.environ.get("LINQ_FROM", "").strip()
+        if chat_id:
+            url = f"{LINQ_API}/chats/{chat_id}/messages"
+        elif to:
+            url = f"{LINQ_API}/messages"
+            body["to"] = [to]
+            if from_number:
+                body["from"] = from_number
+        else:
+            log.warning("linq send_media skipped: no chat_id or to")
+            return False
+        try:
+            response = await self._http.post(url, headers=self._headers(), content=json.dumps(body))
+            if response.status_code >= 400:
+                log.warning("linq send_media failed %s %s", response.status_code, response.text)
+                return False
+            return True
+        except httpx.HTTPError:
+            log.exception("linq send_media request failed")
+            return False

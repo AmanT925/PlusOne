@@ -13,6 +13,12 @@ Fork from `dev`. Owns **Grok Voice / Imagine in the running product** (SpaceXAI 
 
 ## Done when
 
+- [x] Server-side Grok Voice TTS (`server/xai.py`) with `XAI_API_KEY`
+- [x] Whisper path: text always; Linq voice memo when TTS works; optional `audio_url` for Expo Play
+- [x] Grok Imagine fallback to the group thread if Voice fails
+- [x] `/demo/sponsors/voice` and `/demo/sponsors/imagine` for screenshot + working call
+- [x] `.env.example` documents `XAI_API_KEY` / `PLUSONE_PUBLIC_BASE_URL`
+
 A demo path clearly uses Voice **or** Imagine (screenshot + working call). Text whispers still work if audio fails.
 
 ## Files

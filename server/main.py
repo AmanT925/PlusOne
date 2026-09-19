@@ -16,7 +16,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, Response
 
 from server.envload import load_plusone_env, linq_api_key
 
@@ -28,8 +28,10 @@ from server.linq import (
     verify_signature,
     visibility_for,
 )
+from server.media_store import media_store
 from server.rooms import RoomHub, websocket_loop
 from server.store import Store
+from server import xai
 
 load_plusone_env()
 
@@ -74,7 +76,56 @@ def hub() -> RoomHub:
 
 @app.get("/health")
 async def health():
-    return {"ok": True, "linq": bool(linq_api_key())}
+    return {
+        "ok": True,
+        "linq": bool(linq_api_key()),
+        "xai": bool(xai.xai_api_key()),
+        "voice": xai.voice_enabled(),
+        "imagine": xai.imagine_enabled(),
+    }
+
+
+@app.get("/media/{token}")
+async def get_media(token: str):
+    item = media_store.get(token)
+    if item is None:
+        raise HTTPException(404, "media expired or unknown")
+    return Response(content=item.data, media_type=item.content_type)
+
+
+@app.post("/demo/sponsors/voice")
+async def demo_voice(body: dict | None = None):
+    """One-shot Grok Voice call for the SpaceXAI demo path (screenshot + working call)."""
+    body = body or {}
+    text = (body.get("text") or "Plus One whisper: keep the weekend under one-fifty.").strip()
+    if not xai.xai_api_key():
+        raise HTTPException(503, "XAI_API_KEY is not set")
+    try:
+        audio = await xai.synthesize_speech(text)
+    except Exception as exc:
+        raise HTTPException(502, f"TTS failed: {exc}") from exc
+    token = media_store.put(audio, "audio/mpeg")
+    return {
+        "ok": True,
+        "bytes": len(audio),
+        "media_path": f"/media/{token}",
+        "voice_id": body.get("voice_id") or "eve",
+        "text": text,
+    }
+
+
+@app.post("/demo/sponsors/imagine")
+async def demo_imagine(body: dict | None = None):
+    """One-shot Grok Imagine still for SpaceXAI if Voice is blocked."""
+    body = body or {}
+    prompt = (body.get("prompt") or xai.trip_still_prompt(body.get("proposal") or "")).strip()
+    if not xai.xai_api_key():
+        raise HTTPException(503, "XAI_API_KEY is not set")
+    try:
+        result = await xai.generate_image(prompt)
+    except Exception as exc:
+        raise HTTPException(502, f"Imagine failed: {exc}") from exc
+    return {"ok": True, **result, "prompt": prompt}
 
 
 @app.get("/rooms/{room_id}/events")

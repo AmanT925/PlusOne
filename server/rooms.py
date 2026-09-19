@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
@@ -13,9 +14,22 @@ from contracts.schema import Event
 from server import brain_adapter
 from server.context import context_for, public_model_inputs
 from server.linq import LinqClient
+from server.media_store import media_store
 from server.store import Store
+from server import xai
 
 log = logging.getLogger("plusone.rooms")
+
+
+def public_base_url() -> str:
+    return (os.environ.get("PLUSONE_PUBLIC_BASE_URL") or "").rstrip("/")
+
+
+def media_public_url(token: str) -> str | None:
+    base = public_base_url()
+    if not base:
+        return None
+    return f"{base}/media/{token}"
 
 
 class RoomHub:
@@ -23,6 +37,7 @@ class RoomHub:
         self.store = store
         self.linq = linq or LinqClient()
         self._sockets: dict[str, dict[str, WebSocket]] = {}
+        self._imagine_sent: set[str] = set()
 
     def default_room_id(self) -> str:
         return os.environ.get("PLUSONE_ROOM_ID", "demo")
@@ -136,17 +151,85 @@ class RoomHub:
         _ = summary
 
     async def _deliver_whisper(self, room_id: str, viewer: str, text: str) -> None:
-        payload = {"type": "whisper", "text": text}
+        audio_url, audio_bytes, tts_ok = await self._try_tts(text)
+        payload: dict[str, Any] = {"type": "whisper", "text": text}
+        if audio_url:
+            # Optional field for Expo playback (contracts still require text).
+            payload["audio_url"] = audio_url
+
         socket = self._room_sockets(room_id).get(viewer)
         if socket is not None:
             await self._send(room_id, viewer, socket, payload)
+
         chat_id = self.store.dm_chat_for(room_id, viewer)
         phone = self.store.phone_for(room_id, viewer)
         if self.linq and (chat_id or phone):
             if chat_id:
                 await self.linq.start_typing(chat_id)
             await self.linq.send_text(text, chat_id=chat_id, to=phone if not chat_id else None)
+            if audio_bytes and chat_id:
+                await self._send_linq_voice_memo(chat_id, audio_bytes)
+            elif not tts_ok and xai.voice_enabled() and chat_id:
+                # TTS timed out or failed before bytes; finish in background for Linq.
+                asyncio.create_task(self._late_voice_memo(chat_id, text))
 
+        if not tts_ok:
+            await self._imagine_fallback(room_id)
+
+    async def _try_tts(self, text: str) -> tuple[str | None, bytes | None, bool]:
+        """Return (audio_url, audio_bytes, ok). ok=False triggers Imagine fallback."""
+        if not xai.voice_enabled():
+            return None, None, False
+        budget = float(os.environ.get("PLUSONE_TTS_BUDGET_SEC", "2.8"))
+        try:
+            audio = await asyncio.wait_for(xai.synthesize_speech(text), timeout=budget)
+        except Exception:
+            log.exception("Grok Voice TTS failed or timed out")
+            return None, None, False
+        token = media_store.put(audio, "audio/mpeg")
+        url = media_public_url(token) or f"/media/{token}"
+        return url, audio, True
+
+    async def _send_linq_voice_memo(self, chat_id: str, audio: bytes) -> bool:
+        uploaded = await self.linq.upload_attachment(
+            audio, filename="plusone-whisper.mp3", content_type="audio/mpeg"
+        )
+        if not uploaded:
+            return False
+        return await self.linq.send_voice_memo(
+            chat_id=chat_id, attachment_id=uploaded["attachment_id"]
+        )
+
+    async def _late_voice_memo(self, chat_id: str, text: str) -> None:
+        try:
+            audio = await xai.synthesize_speech(text)
+            await self._send_linq_voice_memo(chat_id, audio)
+        except Exception:
+            log.exception("late Linq voice memo failed")
+
+    async def _imagine_fallback(self, room_id: str) -> None:
+        """If Voice is blocked/unavailable, still use Imagine once for SpaceXAI."""
+        if not xai.imagine_enabled():
+            return
+        if room_id in self._imagine_sent:
+            return
+        events = self.store.events(room_id)
+        last_public = next((e.text for e in reversed(events) if e.visibility == "public"), "")
+        group_chat = self.store.group_chat_for(room_id)
+        if not group_chat or not self.linq:
+            log.info("Imagine fallback skipped (no group chat bound yet)")
+            return
+        try:
+            result = await xai.generate_image(xai.trip_still_prompt(last_public))
+            ok = await self.linq.send_media(
+                chat_id=group_chat,
+                media_url=result["url"],
+                caption="Trip vibe (Grok Imagine) — text whispers still apply privately.",
+            )
+            if ok:
+                self._imagine_sent.add(room_id)
+        except Exception:
+            log.exception("Grok Imagine fallback failed")
     def _known_users(self, room_id: str) -> set[str]:
         users = set(self.store.members(room_id))
         users.update(self._room_sockets(room_id).keys())

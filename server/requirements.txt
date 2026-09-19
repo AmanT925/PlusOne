@@ -3,4 +3,5 @@ uvicorn[standard]
 websockets
 httpx
 pytest
+pytest-asyncio
 python-dotenv

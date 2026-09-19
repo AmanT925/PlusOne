@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 
 import { fakeReplies } from './src/fakeServer';
+import { playWhisperAudio } from './src/playWhisper';
 import { usePlusOneSocket, wsUrl } from './src/usePlusOneSocket';
 import type { LogLine, ServerToClient } from './src/types';
 
@@ -33,7 +34,10 @@ export default function App() {
 
   const applyMessage = (msg: ServerToClient) => {
     if (msg.type === 'whisper') {
-      setLog((prev) => [...prev, { kind: 'whisper', text: msg.text }]);
+      setLog((prev) => [
+        ...prev,
+        { kind: 'whisper', text: msg.text, audioUrl: msg.audio_url },
+      ]);
     } else if (msg.type === 'public') {
       setLog((prev) => [...prev, { kind: 'public', speaker: msg.speaker, text: msg.text }]);
     } else if (msg.type === 'counter') {
@@ -147,6 +151,16 @@ export default function App() {
                 ? line.text
                 : ''}
             </Text>
+            {line.kind === 'whisper' && line.audioUrl ? (
+              <Pressable
+                onPress={() => {
+                  void playWhisperAudio(line.audioUrl!, host).catch(() => undefined);
+                }}
+                style={styles.play}
+              >
+                <Text style={styles.playText}>Play whisper</Text>
+              </Pressable>
+            ) : null}
           </View>
         ))}
       </ScrollView>
@@ -223,6 +237,15 @@ const styles = StyleSheet.create({
   you: { backgroundColor: '#1c2420' },
   meta: { color: '#8a8578', fontSize: 12, marginBottom: 4 },
   body: { color: '#f4efe4', fontSize: 16 },
+  play: {
+    marginTop: 8,
+    alignSelf: 'flex-start',
+    backgroundColor: '#6b5a28',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  playText: { color: '#f4efe4', fontWeight: '600', fontSize: 13 },
   composer: {
     borderColor: '#3a342c',
     borderWidth: 1,
