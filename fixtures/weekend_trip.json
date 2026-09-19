@@ -1,0 +1,35 @@
+{
+  "name": "weekend-trip",
+  "people": ["sam", "priya", "alex"],
+  "events": [
+    {
+      "id": 1,
+      "ts": 1,
+      "speaker": "alex",
+      "visibility": "public",
+      "text": "Let's do the $400/night resort this Saturday"
+    },
+    {
+      "id": 2,
+      "ts": 2,
+      "speaker": "sam",
+      "visibility": "private:sam",
+      "text": "I can't do more than $150 this month"
+    },
+    {
+      "id": 3,
+      "ts": 3,
+      "speaker": "priya",
+      "visibility": "private:priya",
+      "text": "I cannot be in a room with Alex"
+    }
+  ],
+  "expected_constraints": [
+    {"user": "sam", "type": "budget_cap", "value": "150", "hard": true},
+    {"user": "priya", "type": "avoid_person", "value": "Alex", "hard": true}
+  ],
+  "canned_whispers": {
+    "sam": "The table is drifting expensive. I'll steer cheaper without naming anyone.",
+    "priya": "I'll keep the plan away from a bad pairing without saying who."
+  }
+}

@@ -5,6 +5,12 @@ __pycache__/
 venv/
 *.db
 
+# Secrets — never commit API keys
+.env
+.env.local
+**/.env
+!server/.env.example
+
 # OS
 .DS_Store
 Thumbs.db

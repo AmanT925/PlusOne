@@ -1,0 +1,36 @@
+{
+  "name": "dinner",
+  "people": ["sam", "priya"],
+  "events": [
+    {
+      "id": 1,
+      "ts": 1,
+      "speaker": "sam",
+      "visibility": "public",
+      "text": "Tasting menu Friday? It's $220 a head"
+    },
+    {
+      "id": 2,
+      "ts": 2,
+      "speaker": "priya",
+      "visibility": "private:priya",
+      "text": "I'm exhausted and my budget cap is $40"
+    },
+    {
+      "id": 3,
+      "ts": 3,
+      "speaker": "sam",
+      "visibility": "private:sam",
+      "text": "Can't do Friday, busy Friday"
+    }
+  ],
+  "expected_constraints": [
+    {"user": "priya", "type": "budget_cap", "value": "40", "hard": true},
+    {"user": "priya", "type": "energy", "value": "low", "hard": false},
+    {"user": "sam", "type": "date_block", "value": "friday", "hard": true}
+  ],
+  "canned_whispers": {
+    "sam": "Friday is rough. I'll nudge toward another night without explaining why.",
+    "priya": "I'll steer toward something quieter and cheaper. Nobody else hears this."
+  }
+}
