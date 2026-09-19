@@ -1,0 +1,5 @@
+## IDF Component Manager
+dependencies:
+  espressif/esp_websocket_client: "^1.2.3"
+  idf:
+    version: ">=5.0"

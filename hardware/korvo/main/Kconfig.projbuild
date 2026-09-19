@@ -1,0 +1,31 @@
+menu "Plus One Korvo"
+
+    config PLUSONE_WIFI_SSID
+        string "Wi-Fi SSID"
+        default "YOUR_WIFI"
+
+    config PLUSONE_WIFI_PASSWORD
+        string "Wi-Fi password"
+        default "YOUR_WIFI_PASSWORD"
+
+    config PLUSONE_HOST
+        string "Plus One server host (IP or hostname)"
+        default "192.168.1.10"
+
+    config PLUSONE_PORT
+        int "Plus One server port"
+        default 8000
+
+    config PLUSONE_ROOM
+        string "Room id"
+        default "demo"
+
+    config PLUSONE_USER
+        string "User id (speaker)"
+        default "sam"
+
+    config PLUSONE_USE_TLS
+        bool "Use wss/https"
+        default n
+
+endmenu

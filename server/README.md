@@ -66,6 +66,20 @@ Put the printed `https://...` URL into the Linq webhook subscription. Leave uvic
 
 `server/brain_adapter.py` imports `brain.brain` in-process. If those functions still raise `NotImplementedError`, Core uses local stubs. `context_for` always runs before `write_whisper`.
 
+## Korvo audio ingest
+
+`POST /rooms/{room_id}/audio` — multipart form:
+
+| Field | Purpose |
+|---|---|
+| `speaker` | user id |
+| `visibility` | `public` or `private:<user>` |
+| `audio` | WAV (or raw PCM16) |
+| `transcript` | optional bypass (skips Muse; for firmware bring-up) |
+| `sample_rate` | PCM rate if not WAV (default 16000) |
+
+With `MUSE_API_KEY`, audio is transcribed via Muse Voice Transcribe then ingested like a text utterance. See [HARDWARE.md](../HARDWARE.md).
+
 ## Part B — Grok Voice / Imagine (`feat/voice-sponsors`)
 
 Whisper **text** always sends (websocket + Linq). When `XAI_API_KEY` is set:
@@ -86,4 +100,4 @@ curl -X POST http://localhost:8000/demo/sponsors/imagine \
   -d '{"proposal":"cabin weekend under $150"}'
 ```
 
-`GET /health` reports `xai` / `voice` / `imagine`.
+`GET /health` reports `xai` / `voice` / `imagine` / `stt`.

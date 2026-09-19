@@ -14,7 +14,7 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Header, HTTPException, Request, WebSocket
+from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse, Response
 
@@ -31,7 +31,8 @@ from server.linq import (
 from server.media_store import media_store
 from server.rooms import RoomHub, websocket_loop
 from server.store import Store
-from server import xai
+from server import stt, xai
+from server.wavutil import pcm16_to_wav
 
 load_plusone_env()
 
@@ -82,6 +83,7 @@ async def health():
         "xai": bool(xai.xai_api_key()),
         "voice": xai.voice_enabled(),
         "imagine": xai.imagine_enabled(),
+        "stt": stt.stt_enabled(),
     }
 
 
@@ -156,6 +158,64 @@ async def post_utterance(room_id: str, body: dict):
         visibility = "public"
     event = await hub().ingest(room_id, speaker, visibility, text)
     return {"id": event.id, "visibility": event.visibility}
+
+
+@app.post("/rooms/{room_id}/audio")
+async def post_audio_utterance(
+    room_id: str,
+    speaker: str = Form(...),
+    visibility: str = Form("public"),
+    transcript: str | None = Form(None),
+    sample_rate: int = Form(16000),
+    audio: UploadFile = File(...),
+):
+    """Korvo / hold-to-talk: upload WAV (or raw PCM16) → STT → same ingest as text.
+
+    Dev bypass: set form field `transcript` to skip Muse (firmware Phase 1–2).
+    Raw PCM: Content-Type audio/L16 or filename ending in .pcm / .raw.
+    """
+    speaker = speaker.strip()
+    if not speaker:
+        raise HTTPException(400, "speaker is required")
+    raw = await audio.read()
+    if not raw:
+        raise HTTPException(400, "empty audio")
+
+    text = (transcript or "").strip()
+    stt_route = "bypass"
+    if not text:
+        content_type = (audio.content_type or "").lower()
+        name = (audio.filename or "").lower()
+        is_pcm = (
+            "audio/l16" in content_type
+            or "pcm" in content_type
+            or name.endswith(".pcm")
+            or name.endswith(".raw")
+        )
+        wav = raw if raw[:4] == b"RIFF" else (pcm16_to_wav(raw, sample_rate=sample_rate) if is_pcm else raw)
+        if wav[:4] != b"RIFF":
+            # Assume PCM16 if not already WAV
+            wav = pcm16_to_wav(raw, sample_rate=sample_rate)
+        try:
+            text = await stt.transcribe_wav(wav)
+            stt_route = "muse"
+        except Exception as exc:
+            raise HTTPException(502, f"STT failed: {exc}") from exc
+    if not text:
+        raise HTTPException(400, "no transcript")
+
+    if visibility.startswith("private:") and visibility != f"private:{speaker}":
+        visibility = f"private:{speaker}"
+    elif visibility != "public" and not visibility.startswith("private:"):
+        visibility = f"private:{speaker}"
+
+    event = await hub().ingest(room_id, speaker, visibility, text)
+    return {
+        "id": event.id,
+        "visibility": event.visibility,
+        "text": text,
+        "stt": stt_route,
+    }
 
 
 @app.websocket("/ws/{user}")

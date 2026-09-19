@@ -5,3 +5,4 @@ httpx
 pytest
 pytest-asyncio
 python-dotenv
+python-multipart

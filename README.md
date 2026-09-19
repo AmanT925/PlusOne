@@ -8,6 +8,7 @@ Voice agent for group planning. See [SPEC.md](SPEC.md) for the full team plan
 - **Server** (`/server`, stream A: Core) — Python, FastAPI, websockets, plus a Linq adapter for iMessage/RCS/SMS webhooks
 - **Brain** (`/brain`, stream B) — Python, plain functions, no server dependency
 - **Client** (`/client`, stream C) — Expo (React Native), for the in-person earbud-audio channel and a text fallback
+- **Hardware** (`/hardware/korvo`) — optional ESP32-S3-Korvo-1 per person (see [HARDWARE.md](HARDWARE.md))
 - **Contracts** (`/contracts`) — frozen shapes shared by all three streams
 - **Fixtures** (`/fixtures`) — sample groups and canned whispers for offline dev
 
