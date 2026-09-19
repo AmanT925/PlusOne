@@ -1,28 +1,15 @@
-# Parts / branches
+# Branches
 
-The work is split into 3 parts, one per stream from `SPEC.md`'s "Roles"
-section. Each part is buildable alone against the frozen `/contracts` — that's
-why the split is along these lines rather than some other cut.
+Integrated product lives on **`dev`**. The old `part-1-core` / `part-2-brain` / `part-3-client` streams were checklist-only and are **deleted** — their work is already on `dev`.
 
-| Part | Branch | Stream | Folder |
+Remaining hackathon work (see [NEXT.md](NEXT.md)):
+
+| Part | Branch | Plan | Owns |
 |---|---|---|---|
-| Part 1 | `part-1-core` | A: Core | `/server` |
-| Part 2 | `part-2-brain` | B: Brain | `/brain` |
-| Part 3 | `part-3-client` | C: Voice and client | `/client` |
+| A | `feat/intelligence` | [PART-A.md](PART-A.md) | LLM whispers, group suggestion, tokens, leak API |
+| B | `feat/voice-sponsors` | [PART-B.md](PART-B.md) | Grok Voice or Imagine in the product |
+| C | `feat/client-ux` | [PART-C.md](PART-C.md) | Expo UI/UX revamp |
 
-**If asked to "work on part N":** check out branch `part-N-...` from the table
-above (create it from `main` if it doesn't exist yet), then follow the
-checklist in that branch's `PART.md` at the repo root. Don't edit `/contracts`
-from inside a part branch — those files are frozen and shared by all three
-parts; changes need agreement across all three and should happen on `main`.
+Merge back into `dev` for the demo. `/contracts` stays frozen.
 
-## Shared / not owned by one part
-
-These aren't any single part's job — whoever's free, or handle together:
-
-- [ ] Does Meta's Official Rules text limit submitting one project to several sponsors?
-- [ ] What is the submission deadline?
-- [ ] Is the "Plus One" name and a matching domain/repo name free?
-- [ ] Has someone already shipped a shared, privacy-aware multi-person agent? (10 min search)
-- [ ] Short write-up: who it's for, how it strengthens connection, why AI is essential
-- [ ] Final integration pass across all 3 parts (see SPEC.md "Integration points")
+**If asked to work on a part:** `git checkout feat/…` from the table (created from `dev`). Don’t edit `/contracts`.

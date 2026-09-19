@@ -4,6 +4,7 @@ __pycache__/
 .venv/
 venv/
 *.db
+server/ngrok.dev.log
 
 # Secrets — never commit API keys
 .env

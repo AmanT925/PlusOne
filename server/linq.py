@@ -203,11 +203,14 @@ class LinqClient:
             log.info("linq send skipped (no LINQ_API_KEY): %s", text[:80])
             return
         body = {"message": {"parts": [{"type": "text", "value": text}]}}
+        from_number = os.environ.get("LINQ_FROM", "").strip()
         if chat_id:
             url = f"{LINQ_API}/chats/{chat_id}/messages"
         elif to:
             url = f"{LINQ_API}/messages"
             body["to"] = [to]
+            if from_number:
+                body["from"] = from_number
         else:
             log.warning("linq send skipped: no chat_id or to")
             return
