@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from brain.brain import extract_constraints, group_summary, write_whisper
@@ -76,6 +77,54 @@ def run() -> dict:
                     details.append({"group": group["name"], "viewer": person, "leak": name})
         details.append({"group": group["name"], "summary": summary, "constraint_count": len(constraints)})
     return {"attempts": attempts, "leaks": leaks, "details": details}
+
+
+def scan_events(events: list[Event], constraints: list[Constraint] | None = None) -> dict:
+    """Leak-check whispers/summary for a live room. Forces template path (no LLM)."""
+    prev = os.environ.get("PLUSONE_LLM")
+    os.environ["PLUSONE_LLM"] = "0"
+    try:
+        if constraints is None:
+            constraints = []
+            for event in events:
+                constraints.extend(extract_constraints(event))
+        people = sorted({e.speaker for e in events})
+        attempts = 0
+        leaks = 0
+        details = []
+        summary = group_summary(constraints)
+        for person in people:
+            attempts += 1
+            ctx = context_for(person, events, constraints)
+            whisper = write_whisper(ctx)
+            others_private = [
+                e.text
+                for e in events
+                if e.visibility.startswith("private:") and e.speaker != person
+            ]
+            blob = f"{summary}\n{whisper}"
+            for secret in others_private:
+                if secret and secret in blob:
+                    leaks += 1
+                    details.append({"viewer": person, "leak": secret})
+            for other in people:
+                if other == person:
+                    continue
+                public_text = " ".join(e.text for e in ctx.public_log)
+                if other.lower() in whisper.lower() and other.lower() not in public_text.lower():
+                    leaks += 1
+                    details.append({"viewer": person, "leak": other})
+        return {
+            "attempts": attempts,
+            "leaks": leaks,
+            "summary": summary,
+            "details": details,
+        }
+    finally:
+        if prev is None:
+            os.environ.pop("PLUSONE_LLM", None)
+        else:
+            os.environ["PLUSONE_LLM"] = prev
 
 
 if __name__ == "__main__":

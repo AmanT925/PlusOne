@@ -127,3 +127,25 @@ def test_health(tmp_path, monkeypatch):
     reload(main)
     with TestClient(main.app) as client:
         assert client.get("/health").json()["ok"] is True
+
+
+def test_leaks_endpoint(tmp_path, monkeypatch):
+    monkeypatch.setenv("PLUSONE_DB", str(tmp_path / "plusone.db"))
+    monkeypatch.setenv("PLUSONE_LLM", "0")
+    from importlib import reload
+    import server.main as main
+
+    reload(main)
+    with TestClient(main.app) as client:
+        client.post(
+            "/rooms/demo/utterances",
+            json={"speaker": "sam", "visibility": "private:sam", "text": "I can't do more than $150"},
+        )
+        client.post(
+            "/rooms/demo/utterances",
+            json={"speaker": "priya", "visibility": "private:priya", "text": "I cannot be in a room with Alex"},
+        )
+        body = client.get("/rooms/demo/leaks").json()
+        assert body["room"]["leaks"] == 0
+        assert body["fixtures"]["leaks"] == 0
+        assert body["fixtures"]["attempts"] >= 4

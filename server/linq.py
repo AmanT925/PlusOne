@@ -198,11 +198,27 @@ class LinqClient:
         except httpx.HTTPError:
             log.exception("linq typing request failed")
 
-    async def send_text(self, text: str, *, chat_id: str | None = None, to: str | None = None) -> None:
+    async def send_text(self, text: str, *, chat_id: str | None = None, to: str | None = None) -> bool:
+        return await self._send_parts(
+            [{"type": "text", "value": text}], chat_id=chat_id, to=to
+        )
+
+    async def send_link(self, url: str, *, chat_id: str | None = None, to: str | None = None) -> bool:
+        return await self._send_parts(
+            [{"type": "link", "value": url}], chat_id=chat_id, to=to
+        )
+
+    async def _send_parts(
+        self,
+        parts: list[dict[str, Any]],
+        *,
+        chat_id: str | None = None,
+        to: str | None = None,
+    ) -> bool:
         if not self.enabled():
-            log.info("linq send skipped (no LINQ_API_KEY): %s", text[:80])
-            return
-        body = {"message": {"parts": [{"type": "text", "value": text}]}}
+            log.info("linq send skipped (no LINQ_API_KEY)")
+            return False
+        body: dict[str, Any] = {"message": {"parts": parts}}
         from_number = os.environ.get("LINQ_FROM", "").strip()
         if chat_id:
             url = f"{LINQ_API}/chats/{chat_id}/messages"
@@ -213,10 +229,13 @@ class LinqClient:
                 body["from"] = from_number
         else:
             log.warning("linq send skipped: no chat_id or to")
-            return
+            return False
         try:
-            response = await self._http.post(url, headers=self._headers(), content=json.dumps(body))
+            response = await self._http.post(url, headers=self._headers(), json=body)
             if response.status_code >= 400:
                 log.warning("linq send failed %s %s", response.status_code, response.text)
+                return False
+            return True
         except httpx.HTTPError:
             log.exception("linq send request failed")
+            return False

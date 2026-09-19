@@ -18,6 +18,7 @@ try:
     from brain.brain import (  # type: ignore
         extract_constraints as _brain_extract,
         group_summary as _brain_summary,
+        looks_like_proposal as _brain_proposal,
         should_whisper as _brain_should,
         write_whisper as _brain_write,
     )
@@ -26,6 +27,7 @@ except Exception:  # pragma: no cover - missing /brain during isolated tests
     _brain_summary = None
     _brain_write = None
     _brain_should = None
+    _brain_proposal = None
 
 
 _BUDGET_RE = re.compile(r"\$\s*(\d{2,6})|(?:budget|afford|spend|cap)\D{0,12}(\d{2,6})", re.I)
@@ -57,6 +59,22 @@ def should_whisper(state: dict[str, Any]) -> bool:
     if result is not None:
         return result
     return _stub_should(state)
+
+
+def looks_like_proposal(text: str) -> bool:
+    result = _try(_brain_proposal, text)
+    if result is not None:
+        return bool(result)
+    t = (text or "").lower()
+    return "let's" in t or "lets " in t or "resort" in t
+
+
+def suggest_public(proposal: str, constraints) -> str | None:
+    try:
+        from brain.brain import suggest_public as _fn
+    except Exception:
+        _fn = None
+    return _try(_fn, proposal, constraints)
 
 
 def _try(fn, *args):

@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from brain.brain import extract_constraints, group_summary, score_plan, should_whisper, write_whisper
+from brain.brain import extract_constraints, group_summary, score_plan, should_whisper, suggest_public, write_whisper
 from brain.leak_test import events_from, run
 from contracts.schema import Constraint, Event, ViewerContext
 
@@ -72,3 +72,23 @@ def test_leak_harness_zero_leaks():
     result = run()
     assert result["leaks"] == 0
     assert result["attempts"] >= 4
+
+
+def test_suggest_public_is_anonymous_and_cheaper():
+    constraints = [Constraint(user="sam", type="budget_cap", value="150", hard=True)]
+    text = suggest_public("Let's do the $400 resort this weekend", constraints)
+    assert text is not None
+    assert "sam" not in text.lower()
+    assert "picnic" not in text.lower()
+    assert "140" in text or "mid-range" in text
+    assert suggest_public("I can't do more than $150", constraints) is None
+    assert suggest_public("hello", constraints) is None
+    from brain.brain import looks_like_proposal
+
+    assert looks_like_proposal("let's do the $400 resort")
+    assert looks_like_proposal("going to Switzerland this weekend")
+    assert not looks_like_proposal("I can't do more than $150")
+    trip = suggest_public("going to Switzerland", constraints)
+    assert trip is not None
+    assert "sam" not in trip.lower()
+    assert "far trip" in trip.lower() or "How about" in trip

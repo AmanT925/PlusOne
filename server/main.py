@@ -107,6 +107,21 @@ async def post_utterance(room_id: str, body: dict):
     return {"id": event.id, "visibility": event.visibility}
 
 
+@app.get("/rooms/{room_id}/leaks")
+async def room_leaks(room_id: str):
+    """Laptop judge screen: attempts vs leaks on this room + fixture harness."""
+    from brain.leak_test import run as fixture_run, scan_events
+
+    events = app.state.store.events(room_id)
+    constraints = app.state.store.constraints(room_id)
+    live = scan_events(events, constraints)
+    fixtures = fixture_run()
+    return {
+        "room": live,
+        "fixtures": {"attempts": fixtures["attempts"], "leaks": fixtures["leaks"]},
+    }
+
+
 @app.websocket("/ws/{user}")
 async def ws_default_room(websocket: WebSocket, user: str):
     await websocket_loop(hub(), DEFAULT_ROOM, user, websocket)
