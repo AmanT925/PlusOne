@@ -23,3 +23,17 @@ all three stream owners (A: Core, B: Brain, C: Voice/client) to agree.
 {"type": "public", "speaker": "...", "text": "..."}
 {"type": "counter", "shared": 0, "total": 0}
 ```
+
+## Linq mapping (stream A)
+
+Plus One also runs over iMessage/RCS/SMS via Linq, feeding the same event log
+as the websocket channel above:
+
+- An inbound message in a person's one-on-one thread becomes an `Event` with
+  `visibility: "private:<user>"`.
+- An inbound message in the group thread becomes a public `Event`.
+- A whisper is sent back to that person's one-on-one thread.
+- Public suggestions are sent to the group thread.
+
+Leak testing must cover extraction attempts through the group thread, not only
+the private one-on-one threads.

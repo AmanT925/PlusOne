@@ -4,8 +4,11 @@ Read the exact versioned docs at https://docs.expo.dev/versions/v57.0.0/ before 
 
 ## Stream C: Voice and client
 
-Owns: phone app, whisper button, speech to text, text to speech, earbud playback,
-text fallback, counter screen, demo video.
+Owns: earbud audio (speech to text, text to speech, earbud playback), the audio
+phone app screen, the counter screen, demo video, and a bare text screen as a
+fallback if Linq access is slow on the day. The primary everyday channel
+(private/group threads) now runs over iMessage via Linq, owned by stream A —
+this app is for the in-person earbud-audio experience plus that fallback.
 
 Scope: only edit files under `/client`. Do not edit `/contracts/*` — those are
 frozen; propose changes to the other stream owners instead.

@@ -17,7 +17,7 @@ Each person can whisper back their real constraints (budget, dates they can't do
 Meta is the main target and the build should be shaped for it first. The other sponsors ride along on the same build.
 
 | Sponsor | How we fit | What we have to do |
-|---|---|---|
+| --- | --- | --- |
 | Meta | Friends plan honestly together; the AI is essential because it holds private constraints from some people while acting for all | Use Muse Spark and Muse Voice Transcribe; submit a working prototype, a 2-3 minute demo video, a public repo, and a short write-up (who it's for, how it strengthens connection, why AI is essential) |
 | Linq | Plus One lives in iMessage: a private thread per person for whispers and one group thread for the plan | Read the track's prize and judging rules; get an API key and a number early; use group chats, typing indicators, and voice memos on purpose |
 | The Token Company | Long multi-person sessions get expensive | Compress context, route cheap steps to a small model, and log tokens per run with and without it for a before/after number |
@@ -49,8 +49,6 @@ Read left to right: speech becomes tagged events, private events become structur
 
 **Stack (keep it boring):** a Python FastAPI or Node websocket server, in-memory state or SQLite for replay, and a plain web page per phone with a whisper button and audio playback. All logic lives on the server.
 
-> Engineering decisions (this repo): Python **FastAPI** for the server, to share a language with the Brain stream (in-process calls instead of an RPC boundary). **Expo (React Native)** instead of a plain web page for the earbud-audio channel below, since that channel is meant to run as a real app on each person's phone. The iMessage channel (via Linq) needs no app at all — see "Channels" below.
-
 ## Channels: iMessage and voice
 
 Plus One runs on two channels over one brain. iMessage through Linq is the everyday channel, and earbud audio is the in-person one. Both feed the same event log, constraints, and `context_for` boundary, so the privacy guarantee doesn't depend on the channel.
@@ -78,7 +76,7 @@ Every message is an event in an append-only log:
 ```
 
 | Output | What the model is given |
-|---|---|
+| --- | --- |
 | Whisper to person U | The public log, U's own private events, and an anonymous group summary (for example "budget ceiling is about $150") |
 | Public speech to the table | The public log and the same anonymous summary; never raw private events |
 
@@ -110,12 +108,12 @@ Build the text version end to end first, then swap in voice. Every step should l
 This assumes a team of 3-4, and we are three, so the work splits into three streams. Each is buildable alone against a shared contract, so each person's coding agent can work without waiting on the others. Names are blank until we assign them.
 
 | Stream | Owns | Talks to the others via | Works alone by |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | A: Core | Websocket server, rooms, event log, `context_for`, Linq adapter (webhooks in, messages out), routing whispers to the right thread or phone, replay, repo, HTTPS tunnel | Calls B's functions; sends and receives Linq and client messages | Stubbing B with hardcoded whispers |
 | B: Brain | Constraint extractor, plan scoring, anonymous group summary, whisper writer, timing rules, leak-test harness (private and group threads), token logging | Plain functions that take and return dicts | Running on fixture groups from a test script, no server |
 | C: Voice and client | Earbud audio (speech to text, text to speech), audio phone page, counter screen, demo video, and a bare text page as a fallback if Linq access is slow | Websocket messages only | Using a fake server that replies with canned whispers |
 
-## Contracts
+### Contracts
 
 Agree these in the first 30 minutes, then freeze them in a `contracts/` folder. Changing one afterwards needs all three of us to agree.
 
@@ -127,11 +125,11 @@ Agree these in the first 30 minutes, then freeze them in a `contracts/` folder. 
 
 **Linq mapping (stream A).** An inbound message in a person's one-on-one thread becomes an event with `visibility: private:<user>`. An inbound message in the group thread becomes a public event. A whisper is sent to that person's one-on-one thread, and public suggestions go to the group thread.
 
-## Repo layout
+### Repo layout
 
-`/contracts`, `/server` (A), `/brain` (B), `/client` (C), `/fixtures` (sample groups and canned whispers). Each person's coding agent works only inside its own folder. Put a short `AGENTS.md` or Cursor rules file at each folder root that states the scope and lists the contract files it must not edit.
+`/contracts`, `/server` (A), `/brain` (B), `/client` (C), `/fixtures` (sample groups and canned whispers). Each person's coding agent works only inside its own folder. Put a short AGENTS.md or Cursor rules file at each folder root that states the scope and lists the contract files it must not edit.
 
-## Integration points
+### Integration points
 
 1. **First 30 minutes:** contracts frozen. B writes three fixture groups, C writes canned whispers, A writes the empty server skeleton.
 2. **Text loop:** A swaps its stub for the real brain, and C swaps the fake server for the real one. Done when two phones can send typed messages and get a whisper on screen.

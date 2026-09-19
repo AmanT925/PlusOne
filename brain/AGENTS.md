@@ -1,7 +1,8 @@
 # Stream B: Brain
 
 Owns: constraint extractor, plan scoring, anonymous group summary, whisper
-writer, timing rules, leak-test harness, token logging.
+writer, timing rules, leak-test harness (covering both private one-on-one
+threads and the group thread), token logging.
 
 Scope: only edit files under `/brain`. Do not edit `/contracts/*` — those are
 frozen; propose changes to the other stream owners instead.
