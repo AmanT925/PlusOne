@@ -226,16 +226,9 @@ def suggest_public(proposal: str, constraints: list[Constraint]) -> str | None:
         cheaper = [p for p in CANDIDATE_PLANS if p["cost"] < max(mentioned)]
         if cheaper:
             plan = pick_plan(cheaper, constraints) or cheaper[0]
-    summary = group_summary(constraints)
     if _TRAVEL_RE.search(proposal):
-        return (
-            f"{summary}. A far trip like that is likely over the group ceiling. "
-            f"How about {plan['blurb']} instead? That should fit everyone without calling anyone out."
-        )
-    return (
-        f"{summary}. How about {plan['blurb']} instead? "
-        "That should fit everyone without calling anyone out."
-    )
+        return f"That's a bit of a haul — how about {plan['blurb']} instead?"
+    return f"How about {plan['blurb']} instead?"
 
 
 def should_whisper(state: Any) -> bool:

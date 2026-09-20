@@ -247,8 +247,11 @@ class RoomHub:
             return
         self._imagine_done.add(room_id)
         self._imagine_url[room_id] = url
+        await self._broadcast(room_id, {"type": "imagine", "url": url})
         if group_chat and self.linq:
-            await self.linq.send_link(url, chat_id=group_chat)
+            await self.linq.send_link(
+                url, chat_id=group_chat, caption="Here's a look at that plan:"
+            )
 
     async def _deliver_whisper(self, room_id: str, viewer: str, text: str) -> None:
         # Synthesize first so GET whisper.mp3 is ready when ingest returns.

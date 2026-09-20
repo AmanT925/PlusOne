@@ -203,10 +203,14 @@ class LinqClient:
             [{"type": "text", "value": text}], chat_id=chat_id, to=to
         )
 
-    async def send_link(self, url: str, *, chat_id: str | None = None, to: str | None = None) -> bool:
-        return await self._send_parts(
-            [{"type": "link", "value": url}], chat_id=chat_id, to=to
-        )
+    async def send_link(
+        self, url: str, *, chat_id: str | None = None, to: str | None = None, caption: str | None = None
+    ) -> bool:
+        parts: list[dict[str, Any]] = []
+        if caption and caption.strip():
+            parts.append({"type": "text", "value": caption.strip()})
+        parts.append({"type": "link", "value": url})
+        return await self._send_parts(parts, chat_id=chat_id, to=to)
 
     async def _send_parts(
         self,

@@ -42,7 +42,8 @@ import { hardShadow, loadSketchFonts, type, wobble } from './src/ui';
 import { usePlusOneSocket } from './src/usePlusOneSocket';
 import { VoiceMeter } from './src/VoiceMeter';
 
-const DEFAULT_HOST = process.env.EXPO_PUBLIC_WS_HOST ?? '10.189.76.94:8000';
+const DEFAULT_HOST =
+  process.env.EXPO_PUBLIC_WS_HOST ?? 'https://stewart-evaluative-overobsequiously.ngrok-free.dev';
 const HOLD_ARM_MS = 180;
 const MIN_CLIP_MS = 400;
 
@@ -55,7 +56,7 @@ function statusCopy(
   if (fakeMode) {
     return { code: 'practice pad', detail: 'Fake server — canned whispers, stays on this phone.' };
   }
-  if (status === 'live') return { code: 'live', detail: `Sitting at table “${room}” · ${host}` };
+  if (status === 'live') return { code: 'live', detail: `Sitting at table “${room}”` };
   if (status === 'connecting') return { code: 'connecting', detail: `Pulling up a chair at ${host}…` };
   if (status === 'error') {
     return {
@@ -78,6 +79,8 @@ export default function App() {
   const [attempts, setAttempts] = useState(0);
   const [leaks, setLeaks] = useState(0);
   const [imagineUrl, setImagineUrl] = useState<string | null>(null);
+  const [stillOpen, setStillOpen] = useState(true);
+  const lastImagineUrlRef = useRef<string | null>(null);
   const [status, setStatus] = useState<'off' | 'connecting' | 'live' | 'error'>('off');
   const [setupOpen, setSetupOpen] = useState(true);
   const [reduceMotion, setReduceMotion] = useState(false);
@@ -136,6 +139,10 @@ export default function App() {
     } else if (msg.type === 'counter') {
       setShared(msg.shared);
       setTotal(msg.total);
+    } else if (msg.type === 'imagine') {
+      if (msg.url !== lastImagineUrlRef.current) setStillOpen(true);
+      lastImagineUrlRef.current = msg.url;
+      setImagineUrl(msg.url);
     }
   };
 
@@ -158,7 +165,11 @@ export default function App() {
         setAttempts(leak.attempts);
         setLeaks(leak.leaks);
       }
-      if (img) setImagineUrl(img);
+      if (img) {
+        if (img !== lastImagineUrlRef.current) setStillOpen(true);
+        lastImagineUrlRef.current = img;
+        setImagineUrl(img);
+      }
     };
     void tick();
     const id = setInterval(tick, 8000);
@@ -374,11 +385,27 @@ export default function App() {
             </Text>
           ) : null}
 
-          {imagineUrl ? (
+          {imagineUrl && !stillOpen ? (
+            <Pressable onPress={() => setStillOpen(true)} style={styles.stillReopen} hitSlop={10}>
+              <Text style={[type.body, styles.stillClose]}>show the still</Text>
+            </Pressable>
+          ) : null}
+
+          {imagineUrl && stillOpen ? (
             <View style={styles.stillWrap}>
               <SketchCard compact decoration="tape" rotate={reduceMotion ? 0 : 1.5} style={styles.stillCard}>
-                <StickyLabel>the still</StickyLabel>
-                <Image source={{ uri: imagineUrl }} style={styles.still} resizeMode="cover" />
+                <View style={styles.stillHeader}>
+                  <StickyLabel>the still</StickyLabel>
+                  <Pressable onPress={() => setStillOpen(false)} hitSlop={10}>
+                    <Text style={[type.body, styles.stillClose]}>close</Text>
+                  </Pressable>
+                </View>
+                <Image
+                  source={{ uri: imagineUrl }}
+                  style={styles.still}
+                  resizeMode="cover"
+                  onError={() => setImagineUrl(null)}
+                />
               </SketchCard>
             </View>
           ) : null}
@@ -656,6 +683,9 @@ const styles = StyleSheet.create({
   statNum: { fontSize: 28, lineHeight: 32, fontWeight: '700' },
   stillWrap: { paddingHorizontal: space.md, marginBottom: 8 },
   stillCard: { paddingBottom: 8 },
+  stillHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  stillClose: { color: color.mutedFg, textDecorationLine: 'underline' },
+  stillReopen: { paddingHorizontal: space.md, marginBottom: 8 },
   still: { height: 132, borderRadius: 8, marginTop: 8, backgroundColor: color.muted },
   feedShell: {
     flex: 1,

@@ -91,4 +91,4 @@ def test_suggest_public_is_anonymous_and_cheaper():
     trip = suggest_public("going to Switzerland", constraints)
     assert trip is not None
     assert "sam" not in trip.lower()
-    assert "far trip" in trip.lower() or "How about" in trip
+    assert "haul" in trip.lower() or "how about" in trip.lower()

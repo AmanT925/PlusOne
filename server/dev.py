@@ -148,10 +148,20 @@ def main() -> int:
     if tunnel:
         print("Reusing an ngrok tunnel that is already running.")
     else:
-        print("Starting ngrok http 8000…")
+        domain = os.environ.get("NGROK_DOMAIN", "").strip()
+        cmd = [str(ngrok_bin), "http", "8000", "--log=stdout", "--log-format=logfmt"]
+        if domain:
+            cmd.append(f"--domain={domain}")
+            print(f"Starting ngrok http 8000 on reserved domain {domain}…")
+        else:
+            print(
+                "Starting ngrok http 8000 (rotating URL). Reserve a free static domain at "
+                "dashboard.ngrok.com/domains and set NGROK_DOMAIN=... in .env to stop it "
+                "from changing on every restart."
+            )
         log_file = log_path.open("w", encoding="utf-8")
         ngrok_proc = subprocess.Popen(
-            [str(ngrok_bin), "http", "8000", "--log=stdout", "--log-format=logfmt"],
+            cmd,
             cwd=ROOT,
             stdout=log_file,
             stderr=subprocess.STDOUT,
