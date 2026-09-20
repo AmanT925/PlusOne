@@ -378,17 +378,18 @@ export default function App() {
               </Text>
             </SketchCard>
           </View>
-          <Text style={[type.body, styles.detail]}>{link.detail}</Text>
+          <View style={styles.detailRow}>
+            <Text style={[type.body, styles.detail]}>{link.detail}</Text>
+            {imagineUrl && !stillOpen ? (
+              <Pressable onPress={() => setStillOpen(true)} hitSlop={10}>
+                <Text style={[type.body, styles.stillClose]}>show the still</Text>
+              </Pressable>
+            ) : null}
+          </View>
           {phoneHost ? (
             <Text style={[type.body, styles.warn]}>
               Phones cannot use localhost. Put this laptop’s LAN IP in Setup, e.g. 10.x.x.x:8000
             </Text>
-          ) : null}
-
-          {imagineUrl && !stillOpen ? (
-            <Pressable onPress={() => setStillOpen(true)} style={styles.stillReopen} hitSlop={10}>
-              <Text style={[type.body, styles.stillClose]}>show the still</Text>
-            </Pressable>
           ) : null}
 
           {imagineUrl && stillOpen ? (
@@ -659,10 +660,16 @@ const styles = StyleSheet.create({
     transform: [{ rotate: '2deg' }],
   },
   setupBtn: { minHeight: 40, paddingHorizontal: 12 },
-  detail: {
+  detailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     paddingHorizontal: space.md,
     marginTop: 2,
     marginBottom: 6,
+  },
+  detail: {
+    flexShrink: 1,
     fontSize: 14,
     color: color.pen,
   },
@@ -685,7 +692,6 @@ const styles = StyleSheet.create({
   stillCard: { paddingBottom: 8 },
   stillHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   stillClose: { color: color.mutedFg, textDecorationLine: 'underline' },
-  stillReopen: { paddingHorizontal: space.md, marginBottom: 8 },
   still: { height: 132, borderRadius: 8, marginTop: 8, backgroundColor: color.muted },
   feedShell: {
     flex: 1,
