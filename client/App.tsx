@@ -1,22 +1,42 @@
 import { StatusBar } from 'expo-status-bar';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AccessibilityInfo,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
   Pressable,
   SafeAreaView,
   ScrollView,
   StyleSheet,
   Switch,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 
+import { PaperBackdrop } from './src/PaperBackdrop';
+import { SketchButton } from './src/SketchButton';
+import { SketchCard, StickyLabel } from './src/SketchCard';
+import { SketchInput } from './src/SketchInput';
 import { fakeReplies } from './src/fakeServer';
-import { usePlusOneSocket, wsUrl } from './src/usePlusOneSocket';
+import { color, space } from './src/theme';
 import type { LogLine, ServerToClient } from './src/types';
+import { hardShadow, loadSketchFonts, type, wobble } from './src/ui';
+import { usePlusOneSocket, wsUrl } from './src/usePlusOneSocket';
 
-const DEFAULT_HOST =
-  process.env.EXPO_PUBLIC_WS_HOST ?? 'localhost:8000';
+const DEFAULT_HOST = process.env.EXPO_PUBLIC_WS_HOST ?? 'localhost:8000';
+
+function statusCopy(
+  fakeMode: boolean,
+  status: 'off' | 'connecting' | 'live' | 'error',
+  room: string,
+) {
+  if (fakeMode) return { code: 'practice pad', detail: 'Fake server — canned whispers, stays on this phone.' };
+  if (status === 'live') return { code: 'live', detail: `Sitting at table “${room}”` };
+  if (status === 'connecting') return { code: 'connecting', detail: 'Pulling up a chair…' };
+  if (status === 'error') return { code: 'whoops', detail: 'Lost the connection. Check the host, or use the practice pad.' };
+  return { code: 'idle', detail: 'Open setup to join a table.' };
+}
 
 export default function App() {
   const [user, setUser] = useState('sam');
@@ -29,7 +49,18 @@ export default function App() {
   const [shared, setShared] = useState(0);
   const [total, setTotal] = useState(1);
   const [status, setStatus] = useState<'off' | 'connecting' | 'live' | 'error'>('off');
+  const [setupOpen, setSetupOpen] = useState(true);
+  const [reduceMotion, setReduceMotion] = useState(false);
   const sharedUsers = useMemo(() => new Set<string>(), []);
+  const feedRef = useRef<ScrollView>(null);
+  const pinBottom = useRef(true);
+
+  useEffect(() => {
+    loadSketchFonts();
+    AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion);
+    const sub = AccessibilityInfo.addEventListener('reduceMotionChanged', setReduceMotion);
+    return () => sub.remove();
+  }, []);
 
   const applyMessage = (msg: ServerToClient) => {
     if (msg.type === 'whisper') {
@@ -61,193 +92,328 @@ export default function App() {
     sendLive({ type: 'utterance', visibility, text: trimmed });
   };
 
-  const onSend = () => {
-    const visibility = holdingWhisper
-      ? `private:${user.trim() || 'anon'}`
-      : 'public';
-    sendUtterance(visibility, text);
+  const who = user.trim() || 'anon';
+  const sendWhisper = () => {
+    sendUtterance(`private:${who}`, text);
+    setText('');
+  };
+  const sendTable = () => {
+    sendUtterance('public', text);
     setText('');
   };
 
+  const link = statusCopy(fakeMode, status, room);
   const composerPlaceholder = holdingWhisper
-    ? 'private to Plus One…'
+    ? 'just for Plus One… (budget, dates, people to skip)'
     : 'say it to the table…';
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <StatusBar style="light" />
-      <View style={styles.header}>
-        <Text style={styles.title}>Plus One</Text>
-        <Text style={styles.counter}>
-          {shared}/{total} shared
-        </Text>
-      </View>
-      <Text style={styles.hint}>
-        {fakeMode
-          ? 'Fake server · canned whispers'
-          : status === 'live'
-            ? `Live · ${room}`
-            : status}
-      </Text>
-
-      <View style={styles.row}>
-        <TextInput
-          style={styles.input}
-          value={user}
-          onChangeText={setUser}
-          autoCapitalize="none"
-          placeholder="your name"
-          placeholderTextColor="#8a8578"
-        />
-        <TextInput
-          style={styles.input}
-          value={room}
-          onChangeText={setRoom}
-          autoCapitalize="none"
-          placeholder="room"
-          placeholderTextColor="#8a8578"
-        />
-      </View>
-      <View style={styles.row}>
-        <Text style={styles.label}>Fake server</Text>
-        <Switch value={fakeMode} onValueChange={setFakeMode} />
-      </View>
-      {!fakeMode && (
-        <TextInput
-          style={styles.inputWide}
-          value={host}
-          onChangeText={setHost}
-          autoCapitalize="none"
-          placeholder="host:port"
-          placeholderTextColor="#8a8578"
-        />
-      )}
-
-      <ScrollView style={styles.log} contentContainerStyle={styles.logInner}>
-        {log.map((line, i) => (
-          <View
-            key={i}
-            style={[
-              styles.bubble,
-              line.kind === 'whisper' && styles.whisper,
-              line.kind === 'you' && styles.you,
-            ]}
-          >
-            <Text style={styles.meta}>
-              {line.kind === 'public'
-                ? line.speaker
-                : line.kind === 'whisper'
-                  ? 'whisper · only you'
-                  : line.visibility.startsWith('private')
-                    ? 'you · private'
-                    : 'you · table'}
-            </Text>
-            <Text style={styles.body}>
-              {line.kind === 'public' || line.kind === 'you' || line.kind === 'whisper'
-                ? line.text
-                : ''}
-            </Text>
+    <View style={styles.root}>
+      <StatusBar style="dark" />
+      <PaperBackdrop />
+      <SafeAreaView style={styles.safe}>
+        <KeyboardAvoidingView
+          style={styles.flex}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={styles.top}>
+            <View style={styles.topCopy}>
+              <Text style={[type.heading, styles.title]}>
+                Plus One
+                <Text style={[styles.bang, !reduceMotion && styles.bangTilt]}>!</Text>
+              </Text>
+              <Text style={[type.body, styles.kicker]}>
+                weekend plans that fit the whole table
+              </Text>
+            </View>
+            <View style={styles.topActions}>
+              <View style={[styles.pill, wobble('sm'), hardShadow('pressed')]}>
+                <Text style={[type.body, { fontSize: 15 }]}>{link.code}</Text>
+              </View>
+              <SketchButton label="setup" onPress={() => setSetupOpen(true)} style={styles.setupBtn} />
+            </View>
           </View>
-        ))}
-      </ScrollView>
 
-      <TextInput
-        style={styles.composer}
-        value={text}
-        onChangeText={setText}
-        placeholder={composerPlaceholder}
-        placeholderTextColor="#8a8578"
-        onSubmitEditing={onSend}
-        returnKeyType="send"
-      />
-      <View style={styles.actions}>
-        <Pressable
-          onPressIn={() => setHoldingWhisper(true)}
-          onPressOut={() => setHoldingWhisper(false)}
-          onPress={() => {
-            sendUtterance(`private:${user.trim() || 'anon'}`, text);
-            setText('');
-          }}
-          style={[styles.hold, holdingWhisper && styles.holdActive]}
+          <View style={styles.stats}>
+            <SketchCard compact decoration="tack" postIt rotate={reduceMotion ? 0 : -1} style={styles.statCard}>
+              <Text style={[type.body, styles.statLabel]}>shared</Text>
+              <Text style={[type.body, styles.statNum]}>{shared}</Text>
+            </SketchCard>
+            <SketchCard compact decoration="tape" rotate={reduceMotion ? 0 : 1} style={styles.statCard}>
+              <Text style={[type.body, styles.statLabel]}>at the table</Text>
+              <Text style={[type.body, styles.statNum, { color: color.pen }]}>{total}</Text>
+            </SketchCard>
+          </View>
+          <Text style={[type.body, styles.detail]}>{link.detail}</Text>
+
+          <View style={styles.feedShell}>
+            <ScrollView
+              ref={feedRef}
+              style={styles.feedScroll}
+              contentContainerStyle={[
+                styles.feed,
+                log.length === 0 && styles.feedEmpty,
+              ]}
+              keyboardShouldPersistTaps="handled"
+              nestedScrollEnabled
+              scrollEnabled
+              keyboardDismissMode="on-drag"
+              onScroll={(event) => {
+                const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+                const gap = contentSize.height - layoutMeasurement.height - contentOffset.y;
+                pinBottom.current = gap < 48;
+              }}
+              scrollEventThrottle={16}
+              onContentSizeChange={() => {
+                if (pinBottom.current) {
+                  feedRef.current?.scrollToEnd({ animated: false });
+                }
+              }}
+            >
+              {log.length === 0 ? (
+                <SketchCard compact decoration="tape">
+                  <StickyLabel>the table</StickyLabel>
+                  <Text style={[type.body, styles.empty]}>
+                    Table talk is shared. Whispers stay on this phone.
+                  </Text>
+                </SketchCard>
+              ) : (
+                log.map((line, i) => {
+                  const isWhisper = line.kind === 'whisper';
+                  const isPrivateYou =
+                    line.kind === 'you' && line.visibility.startsWith('private');
+                  const secret = isWhisper || isPrivateYou;
+                  const mine = line.kind === 'you';
+                  return (
+                    <View
+                      key={`${i}-${line.kind}`}
+                      style={[styles.row, mine && styles.rowMine]}
+                    >
+                      <SketchCard
+                        compact
+                        postIt={secret}
+                        decoration="none"
+                        style={[styles.bubble, mine && styles.bubbleMine]}
+                      >
+                        <Text
+                          style={[
+                            type.body,
+                            styles.meta,
+                            { color: secret ? color.accent : color.pen },
+                          ]}
+                        >
+                          {line.kind === 'public'
+                            ? `table · ${line.speaker}`
+                            : line.kind === 'whisper'
+                              ? 'whisper · only you'
+                              : line.visibility.startsWith('private')
+                                ? 'you · private'
+                                : 'you · table'}
+                        </Text>
+                        <Text style={[type.body, styles.bubbleText]}>
+                          {line.kind === 'public' || line.kind === 'you' || line.kind === 'whisper'
+                            ? line.text
+                            : ''}
+                        </Text>
+                      </SketchCard>
+                    </View>
+                  );
+                })
+              )}
+            </ScrollView>
+          </View>
+
+          <View style={styles.dock}>
+            <SketchInput
+              value={text}
+              onChangeText={setText}
+              placeholder={composerPlaceholder}
+              onSubmitEditing={holdingWhisper ? sendWhisper : sendTable}
+              returnKeyType="send"
+            />
+            <View style={styles.actions}>
+              <SketchButton
+                label="Whisper"
+                variant="primary"
+                style={styles.flex}
+                onPressIn={() => setHoldingWhisper(true)}
+                onPressOut={() => setHoldingWhisper(false)}
+                onPress={sendWhisper}
+              />
+              <SketchButton
+                label="Table"
+                variant="secondary"
+                style={styles.flex}
+                onPress={sendTable}
+              />
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+
+      {setupOpen ? (
+        <Modal
+          visible
+          animationType={reduceMotion ? 'none' : 'fade'}
+          transparent
+          onRequestClose={() => setSetupOpen(false)}
         >
-          <Text style={styles.holdText}>Whisper</Text>
-        </Pressable>
-        <Pressable
-          onPress={() => {
-            sendUtterance('public', text);
-            setText('');
-          }}
-          style={styles.send}
-        >
-          <Text style={styles.sendText}>Table</Text>
-        </Pressable>
-      </View>
-    </SafeAreaView>
+          <Pressable style={styles.scrim} onPress={() => setSetupOpen(false)}>
+            <Pressable style={styles.modalCard} onPress={() => {}}>
+              <SketchCard decoration="tape" postIt rotate={-1}>
+                <Text style={[type.heading, { fontSize: 32 }]}>who’s at the table?</Text>
+                <Text style={[type.body, { fontSize: 18, marginBottom: 12 }]}>
+                  Same room, different names. That’s how two phones prove the privacy split.
+                </Text>
+                <Text style={[type.body, styles.fieldLabel]}>your name</Text>
+                <SketchInput
+                  value={user}
+                  onChangeText={setUser}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  placeholder="sam"
+                />
+                <Text style={[type.body, styles.fieldLabel]}>room</Text>
+                <SketchInput
+                  value={room}
+                  onChangeText={setRoom}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  placeholder="demo"
+                />
+                <View style={styles.toggleRow}>
+                  <Text style={[type.body, { flex: 1, fontSize: 18 }]}>practice pad (fake server)</Text>
+                  <Switch
+                    value={fakeMode}
+                    onValueChange={setFakeMode}
+                    trackColor={{ false: color.muted, true: color.accent }}
+                    thumbColor={color.card}
+                    accessibilityLabel="Practice pad fake server"
+                  />
+                </View>
+                {!fakeMode ? (
+                  <>
+                    <Text style={[type.body, styles.fieldLabel]}>server host</Text>
+                    <SketchInput
+                      value={host}
+                      onChangeText={setHost}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      placeholder="localhost:8000"
+                    />
+                  </>
+                ) : null}
+                <SketchButton
+                  label="sit down"
+                  onPress={() => setSetupOpen(false)}
+                  style={{ marginTop: space.md }}
+                />
+              </SketchCard>
+            </Pressable>
+          </Pressable>
+        </Modal>
+      ) : null}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#161410', paddingHorizontal: 16, paddingTop: 12 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
-  title: { color: '#f4efe4', fontSize: 28, fontWeight: '700' },
-  counter: { color: '#c4b48a', fontSize: 16 },
-  hint: { color: '#8a8578', marginTop: 4, marginBottom: 12 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
-  input: {
+  root: {
     flex: 1,
-    borderColor: '#3a342c',
-    borderWidth: 1,
-    borderRadius: 10,
-    color: '#f4efe4',
+    backgroundColor: color.background,
+    overflow: 'hidden',
+    ...(Platform.OS === 'web' ? { height: '100vh' as unknown as number } : {}),
+  },
+  safe: { flex: 1, minHeight: 0 },
+  flex: { flex: 1, minHeight: 0 },
+  top: {
+    paddingHorizontal: space.md,
+    paddingTop: space.sm,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: space.sm,
+  },
+  title: { fontSize: 32, lineHeight: 36 },
+  bang: { color: color.accent, fontSize: 34 },
+  bangTilt: { transform: [{ rotate: '12deg' }] },
+  kicker: { fontSize: 16, maxWidth: 260, marginTop: 0 },
+  topCopy: { flex: 1, paddingRight: 8 },
+  topActions: { alignItems: 'flex-end', gap: 6 },
+  pill: {
+    borderWidth: 2,
+    borderColor: color.border,
+    backgroundColor: color.postIt,
     paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingVertical: 2,
+    transform: [{ rotate: '2deg' }],
   },
-  inputWide: {
-    borderColor: '#3a342c',
-    borderWidth: 1,
-    borderRadius: 10,
-    color: '#f4efe4',
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    marginBottom: 8,
+  setupBtn: { minHeight: 40, paddingHorizontal: 12 },
+  detail: {
+    paddingHorizontal: space.md,
+    marginTop: 2,
+    marginBottom: 6,
+    fontSize: 14,
+    color: color.pen,
   },
-  label: { color: '#c4b48a', flex: 1 },
-  log: { flex: 1, marginTop: 4 },
-  logInner: { paddingBottom: 12, gap: 8 },
-  bubble: {
-    backgroundColor: '#241f18',
-    borderRadius: 12,
-    padding: 10,
+  stats: {
+    flexDirection: 'row',
+    gap: space.sm,
+    paddingHorizontal: space.md,
+    marginBottom: 4,
   },
-  whisper: { backgroundColor: '#2a2410', borderWidth: 1, borderColor: '#6b5a28' },
-  you: { backgroundColor: '#1c2420' },
-  meta: { color: '#8a8578', fontSize: 12, marginBottom: 4 },
-  body: { color: '#f4efe4', fontSize: 16 },
-  composer: {
-    borderColor: '#3a342c',
-    borderWidth: 1,
-    borderRadius: 10,
-    color: '#f4efe4',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginTop: 8,
-  },
-  actions: { flexDirection: 'row', gap: 8, marginTop: 8, marginBottom: 12 },
-  hold: {
+  statCard: { flex: 1, minWidth: 0 },
+  statLabel: { fontSize: 14 },
+  statNum: { fontSize: 28, lineHeight: 32, fontWeight: '700' },
+  feedShell: {
     flex: 1,
-    backgroundColor: '#3a342c',
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: 'center',
+    minHeight: 0,
+    marginHorizontal: space.md,
+    marginBottom: 4,
+    borderWidth: 2,
+    borderColor: color.border,
+    backgroundColor: 'rgba(255,255,255,0.55)',
   },
-  holdActive: { backgroundColor: '#6b5a28' },
-  holdText: { color: '#f4efe4', fontWeight: '600' },
-  send: {
-    backgroundColor: '#c4b48a',
-    borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 22,
+  feedScroll: {
+    flex: 1,
+    minHeight: 0,
+    ...(Platform.OS === 'web'
+      ? ({ overflow: 'auto', overscrollBehavior: 'contain' } as object)
+      : {}),
+  },
+  feed: { padding: 12, gap: 8, paddingBottom: 20 },
+  feedEmpty: { flexGrow: 1, justifyContent: 'center' },
+  empty: { fontSize: 17, marginTop: 8, lineHeight: 22 },
+  row: { alignSelf: 'stretch', maxWidth: '92%' },
+  rowMine: { alignSelf: 'flex-end' },
+  bubble: { width: '100%' },
+  bubbleMine: {},
+  meta: { fontSize: 13, marginBottom: 2 },
+  bubbleText: { fontSize: 18, lineHeight: 24 },
+  dock: {
+    flexShrink: 0,
+    paddingHorizontal: space.md,
+    paddingBottom: space.md,
+    paddingTop: space.sm,
+    gap: space.sm,
+    backgroundColor: color.background,
+    borderTopWidth: 2,
+    borderTopColor: color.border,
+    borderStyle: 'dashed',
+  },
+  actions: { flexDirection: 'row', gap: space.sm },
+  scrim: {
+    flex: 1,
+    backgroundColor: 'rgba(45,45,45,0.25)',
     justifyContent: 'center',
+    padding: space.md,
   },
-  sendText: { color: '#161410', fontWeight: '700' },
+  modalCard: { width: '100%', maxWidth: 440, alignSelf: 'center' },
+  fieldLabel: { marginTop: 12, marginBottom: 4, fontSize: 16 },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: space.md,
+    gap: 12,
+  },
 });

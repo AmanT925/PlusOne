@@ -121,6 +121,11 @@ def group_summary(constraints: list[Constraint]) -> str:
 
 
 def write_whisper(viewer_context: ViewerContext) -> str:
+    from brain.llm import llm_whisper
+
+    generated = llm_whisper(viewer_context)
+    if generated:
+        return generated
     summary = viewer_context.group_summary or "the group has private constraints"
     last_public = (
         viewer_context.public_log[-1].text if viewer_context.public_log else "the current plan"

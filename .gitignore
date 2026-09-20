@@ -11,6 +11,8 @@ server/ngrok.dev.log
 .env.local
 **/.env
 !server/.env.example
+/env
+env
 
 # OS
 .DS_Store
