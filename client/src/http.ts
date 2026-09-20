@@ -1,3 +1,5 @@
+import { File } from 'expo-file-system';
+
 /** LAN IPs (and localhost) mean plain http/ws; anything else (ngrok, real domains) means https/wss. */
 function looksLikeLanHost(host: string): boolean {
   return /^(localhost|\d{1,3}(\.\d{1,3}){3})(:\d+)?$/i.test(host);
@@ -97,12 +99,12 @@ export async function postRoomAudio(
   if (transcript?.trim()) form.append('transcript', transcript.trim());
 
   const name = fileUri.toLowerCase().includes('.wav') ? 'utterance.wav' : 'utterance.m4a';
-  const type = name.endsWith('.wav') ? 'audio/wav' : 'audio/mp4';
   if (fileUri.startsWith('blob:') || fileUri.startsWith('data:')) {
     const blob = await (await fetch(fileUri)).blob();
     form.append('audio', blob, name);
   } else {
-    form.append('audio', { uri: fileUri, name, type } as unknown as Blob);
+    // Expo 57 fetch serializes Blob/File bytes, not legacy RN URI descriptors.
+    form.append('audio', new File(fileUri));
   }
 
   const controller = new AbortController();
