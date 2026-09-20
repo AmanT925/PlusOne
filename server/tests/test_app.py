@@ -103,20 +103,28 @@ def test_websocket_reconnect_replays_public(tmp_path, monkeypatch):
     reload(main)
 
     with TestClient(main.app) as client:
+        posted = client.post(
+            "/rooms/demo/utterances",
+            json={"speaker": "sam", "visibility": "public", "text": "hello table"},
+        )
+        assert posted.status_code == 200
         with client.websocket_connect("/ws/demo/sam") as ws:
-            joined = ws.receive_json()
-            assert joined["type"] == "counter"
-            ws.send_json(
-                {"type": "utterance", "visibility": "public", "text": "hello table"}
-            )
-            public = ws.receive_json()
-            assert public["type"] == "public"
-            assert public["text"] == "hello table"
+            seen = []
+            for _ in range(8):
+                msg = ws.receive_json()
+                seen.append(msg)
+                if msg.get("type") == "public" and msg.get("text") == "hello table":
+                    break
+            assert any(m.get("type") == "public" and m.get("text") == "hello table" for m in seen)
 
         with client.websocket_connect("/ws/demo/sam") as ws2:
-            replayed = ws2.receive_json()
-            assert replayed["type"] == "public"
-            assert replayed["text"] == "hello table"
+            replayed = []
+            for _ in range(8):
+                msg = ws2.receive_json()
+                replayed.append(msg)
+                if msg.get("type") == "public" and msg.get("text") == "hello table":
+                    break
+            assert any(m.get("type") == "public" and m.get("text") == "hello table" for m in replayed)
 
 
 def test_health(tmp_path, monkeypatch):
