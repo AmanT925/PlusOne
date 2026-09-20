@@ -1,3 +1,8 @@
+/** LAN IPs (and localhost) mean plain http/ws; anything else (ngrok, real domains) means https/wss. */
+function looksLikeLanHost(host: string): boolean {
+  return /^(localhost|\d{1,3}(\.\d{1,3}){3})(:\d+)?$/i.test(host);
+}
+
 /** Metro is :8081. Plus One API is :8000. Strip exp:// and swap the packager port. */
 export function normalizeHost(raw: string): string {
   let host = (raw || '').trim();
@@ -13,7 +18,9 @@ export function httpBase(host: string): string {
   let trimmed = normalizeHost(host);
   if (trimmed.startsWith('ws://')) trimmed = `http://${trimmed.slice(5)}`;
   if (trimmed.startsWith('wss://')) trimmed = `https://${trimmed.slice(6)}`;
-  if (!/^https?:\/\//i.test(trimmed)) trimmed = `http://${trimmed}`;
+  if (!/^https?:\/\//i.test(trimmed)) {
+    trimmed = looksLikeLanHost(trimmed) ? `http://${trimmed}` : `https://${trimmed}`;
+  }
   return trimmed.replace(/\/$/, '');
 }
 
@@ -24,7 +31,7 @@ export function wsUrl(host: string, room: string, user: string): string {
   else if (trimmed.startsWith('wss://') || trimmed.startsWith('ws://')) {
     // already a socket URL
   } else {
-    trimmed = `ws://${trimmed}`;
+    trimmed = looksLikeLanHost(trimmed) ? `ws://${trimmed}` : `wss://${trimmed}`;
   }
   trimmed = trimmed.replace(/\/$/, '');
   return `${trimmed}/ws/${encodeURIComponent(room)}/${encodeURIComponent(user)}`;

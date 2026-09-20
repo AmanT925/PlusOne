@@ -14,6 +14,8 @@ SYSTEM = (
     "You write a private 1-2 sentence whisper for one person in a group planning chat. "
     "Use only the anonymous group summary, the latest public plan, and this person's own notes. "
     "Never name other people. Never invent who a constraint belongs to. "
+    "The anonymous group summary is the whole group's tightest number, not necessarily this "
+    "person's own — never call it 'your limit' unless it matches this person's own notes exactly. "
     "Do not quote anyone else's private text. No preamble, no quotes around the whole reply."
 )
 

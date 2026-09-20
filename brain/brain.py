@@ -57,6 +57,7 @@ _CONSTRAINT_CUE = re.compile(
     r"\b(can't|cannot|won't|afford|budget|more than|cap|max(?:imum)?)\b",
     re.I,
 )
+_MENTION_RE = re.compile(r"@?\bplus[\s-]?one\b", re.I)
 
 
 def looks_like_proposal(text: str) -> bool:
@@ -202,6 +203,19 @@ def _clip_whisper(text: str) -> str:
     if not parts:
         return text[:280].strip()
     return " ".join(parts)
+
+
+def looks_like_mention(text: str) -> bool:
+    """True when someone directly addresses the bot by name in the table thread."""
+    return bool(_MENTION_RE.search((text or "").strip()))
+
+
+def direct_reply(proposal: str, constraints: list[Constraint]) -> str:
+    """Guaranteed table-safe reply for a direct @plus-one mention, even with no conflict yet."""
+    suggestion = suggest_public(proposal, constraints)
+    if suggestion:
+        return suggestion
+    return "Nothing's flagged yet — keep planning and I'll jump in if something looks off for someone."
 
 
 def suggest_public(proposal: str, constraints: list[Constraint]) -> str | None:

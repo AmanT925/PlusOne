@@ -127,6 +127,13 @@ async def whisper_audio(room_id: str, user: str):
     )
 
 
+@app.post("/rooms/{room_id}/reset")
+async def reset_room(room_id: str):
+    """Wipe a room's history for a clean demo/test run. Destructive, no undo."""
+    hub().reset_room(room_id)
+    return {"ok": True, "room": room_id}
+
+
 @app.get("/rooms/{room_id}/events")
 async def list_events(room_id: str):
     """Replay helper: inspect the append-only log (includes private events)."""
