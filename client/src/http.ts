@@ -1,3 +1,8 @@
+/** LAN IPs (and localhost) mean plain http/ws; anything else (ngrok, real domains) means https/wss. */
+function looksLikeLanHost(host: string): boolean {
+  return /^(localhost|\d{1,3}(\.\d{1,3}){3})(:\d+)?$/i.test(host);
+}
+
 /** Metro is :8081. Plus One API is :8000. Strip exp:// and swap the packager port. */
 export function normalizeHost(raw: string): string {
   let host = (raw || '').trim();
@@ -13,7 +18,9 @@ export function httpBase(host: string): string {
   let trimmed = normalizeHost(host);
   if (trimmed.startsWith('ws://')) trimmed = `http://${trimmed.slice(5)}`;
   if (trimmed.startsWith('wss://')) trimmed = `https://${trimmed.slice(6)}`;
-  if (!/^https?:\/\//i.test(trimmed)) trimmed = `http://${trimmed}`;
+  if (!/^https?:\/\//i.test(trimmed)) {
+    trimmed = looksLikeLanHost(trimmed) ? `http://${trimmed}` : `https://${trimmed}`;
+  }
   return trimmed.replace(/\/$/, '');
 }
 
@@ -24,7 +31,7 @@ export function wsUrl(host: string, room: string, user: string): string {
   else if (trimmed.startsWith('wss://') || trimmed.startsWith('ws://')) {
     // already a socket URL
   } else {
-    trimmed = `ws://${trimmed}`;
+    trimmed = looksLikeLanHost(trimmed) ? `ws://${trimmed}` : `wss://${trimmed}`;
   }
   trimmed = trimmed.replace(/\/$/, '');
   return `${trimmed}/ws/${encodeURIComponent(room)}/${encodeURIComponent(user)}`;
@@ -68,32 +75,53 @@ export function whisperAudioUrl(host: string, room: string, user: string): strin
   return `${httpBase(host)}/rooms/${encodeURIComponent(room)}/users/${encodeURIComponent(user)}/whisper.mp3?t=${Date.now()}`;
 }
 
-export async function uploadRecording(
-  host: string, room: string, user: string, visibility: string,
-  uri: string, web: boolean,
-): Promise<{ text: string; visibility: string }> {
+export type AudioIngest = {
+  id: string;
+  visibility: string;
+  text: string;
+  stt: string;
+};
+
+/** Phone recording → server WAV conversion → Muse → conversation. */
+export async function postRoomAudio(
+  host: string,
+  room: string,
+  speaker: string,
+  visibility: string,
+  fileUri: string,
+  transcript?: string,
+): Promise<AudioIngest> {
   const form = new FormData();
-  form.append('speaker', user);
+  form.append('speaker', speaker);
   form.append('visibility', visibility);
-  if (web) {
-    const blob = await (await fetch(uri)).blob();
-    form.append('audio', blob, 'recording.webm');
+  if (transcript?.trim()) form.append('transcript', transcript.trim());
+
+  const name = fileUri.toLowerCase().includes('.wav') ? 'utterance.wav' : 'utterance.m4a';
+  const type = name.endsWith('.wav') ? 'audio/wav' : 'audio/mp4';
+  if (fileUri.startsWith('blob:') || fileUri.startsWith('data:')) {
+    const blob = await (await fetch(fileUri)).blob();
+    form.append('audio', blob, name);
   } else {
-    // React Native's FormData accepts a local file descriptor.
-    form.append('audio', { uri, name: 'recording.m4a', type: 'audio/mp4' } as unknown as Blob);
+    form.append('audio', { uri: fileUri, name, type } as unknown as Blob);
   }
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 120000);
   try {
-    const response = await fetch(`${httpBase(host)}/rooms/${encodeURIComponent(room)}/audio`, {
-      method: 'POST', body: form, signal: controller.signal, headers: NGROK_HEADERS,
+    const res = await fetch(`${httpBase(host)}/rooms/${encodeURIComponent(room)}/audio`, {
+      method: 'POST',
+      headers: NGROK_HEADERS,
+      body: form,
+      signal: controller.signal,
     });
-    const body = await response.json();
-    if (!response.ok) throw new Error(body.detail || 'Transcription failed. Try again.');
-    return body;
+    if (!res.ok) {
+      const detail = await res.text();
+      throw new Error(detail || `audio ${res.status}`);
+    }
+    return (await res.json()) as AudioIngest;
   } catch (error) {
     if (controller.signal.aborted) {
-      throw new Error('The response timed out. Check the conversation before recording again; it may have been sent.');
+      throw new Error('Response timed out. Check the conversation before sending again.');
     }
     throw error;
   } finally {

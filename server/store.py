@@ -70,6 +70,17 @@ class Store:
         with self._lock:
             self._conn.close()
 
+    def reset_room(self, room_id: str) -> None:
+        """Clear a room's events/constraints/members/whisper history for a fresh session.
+
+        Leaves linq_chats (chat_id<->room bindings) and processed_webhooks alone —
+        those are identity/idempotency data, not test noise.
+        """
+        with self._lock:
+            for table in ("events", "constraints", "members", "whisper_times"):
+                self._conn.execute(f"DELETE FROM {table} WHERE room_id = ?", (room_id,))
+            self._conn.commit()
+
     def append_event(
         self, room_id: str, ts: float, speaker: str, visibility: str, text: str
     ) -> Event:

@@ -97,7 +97,7 @@ def test_travel_plan_in_group_gets_suggestion():
     asyncio.run(hub.ingest("demo", "alex", "public", "going to Switzerland"))
     group = [m for m in linq.sent if m["chat_id"] == "grp"]
     assert group
-    assert any("How about" in m["text"] or "far trip" in m["text"].lower() for m in group)
+    assert any("how about" in m["text"].lower() or "haul" in m["text"].lower() for m in group)
     assert not [m for m in linq.sent if m["chat_id"] == "dm-sam"]
     linq.sent.clear()
     asyncio.run(hub.ingest("demo", "priya", "public", "let's do the $400 resort"))

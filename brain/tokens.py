@@ -20,6 +20,8 @@ class TokenRecord:
     completion_tokens: int
     model: str
     ok: bool
+    reasoning_tokens: int = 0
+    cost_usd_ticks: int = 0
 
 
 _records: list[TokenRecord] = []
@@ -32,6 +34,8 @@ def log_tokens(
     completion_tokens: int = 0,
     model: str = "",
     ok: bool = True,
+    reasoning_tokens: int = 0,
+    cost_usd_ticks: int = 0,
 ) -> None:
     rec = TokenRecord(
         ts=time.time(),
@@ -40,6 +44,8 @@ def log_tokens(
         completion_tokens=int(completion_tokens or 0),
         model=model,
         ok=ok,
+        reasoning_tokens=int(reasoning_tokens or 0),
+        cost_usd_ticks=int(cost_usd_ticks or 0),
     )
     with _lock:
         _records.append(rec)
@@ -53,10 +59,21 @@ def totals() -> dict[str, dict[str, int]]:
     with _lock:
         rows = list(_records)
     for rec in rows:
-        bucket = by.setdefault(rec.route, {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0})
+        bucket = by.setdefault(
+            rec.route,
+            {
+                "calls": 0,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "reasoning_tokens": 0,
+                "cost_usd_ticks": 0,
+            },
+        )
         bucket["calls"] += 1
         bucket["prompt_tokens"] += rec.prompt_tokens
         bucket["completion_tokens"] += rec.completion_tokens
+        bucket["reasoning_tokens"] += rec.reasoning_tokens
+        bucket["cost_usd_ticks"] += rec.cost_usd_ticks
     return by
 
 

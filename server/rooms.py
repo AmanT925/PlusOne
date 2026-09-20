@@ -40,6 +40,16 @@ class RoomHub:
     def whisper_mp3(self, room_id: str, user: str) -> bytes | None:
         return self._whisper_mp3.get((room_id, user))
 
+    def reset_room(self, room_id: str) -> None:
+        """Wipe a room's history and in-memory demo state for a clean test/session."""
+        self.store.reset_room(room_id)
+        self._last_public_at.pop(room_id, None)
+        self._last_public_proposal.pop(room_id, None)
+        self._imagine_done.discard(room_id)
+        self._imagine_url.pop(room_id, None)
+        for key in [k for k in self._whisper_mp3 if k[0] == room_id]:
+            self._whisper_mp3.pop(key, None)
+
     def _room_sockets(self, room_id: str) -> dict[str, WebSocket]:
         return self._sockets.setdefault(room_id, {})
 
@@ -97,8 +107,9 @@ class RoomHub:
                 {"type": "public", "speaker": event.speaker, "text": event.text},
             )
             posted = False
-            if brain_adapter.looks_like_proposal(event.text):
-                posted = await self._maybe_public_plan(room_id, event.text, now=ts)
+            mentioned = brain_adapter.looks_like_mention(event.text)
+            if mentioned or brain_adapter.looks_like_proposal(event.text):
+                posted = await self._maybe_public_plan(room_id, event.text, now=ts, force=mentioned)
             if not posted:
                 self._spawn(self._maybe_whisper_all(room_id, trigger="public", now=ts))
         else:
@@ -159,15 +170,22 @@ class RoomHub:
         proposal: str,
         now: float,
         fallback_user: str | None = None,
+        force: bool = False,
     ) -> bool:
         key = " ".join(proposal.lower().split())[:120]
         last_at = self._last_public_at.get(room_id)
         last_key = self._last_public_proposal.get(room_id)
-        if last_at is not None and now - last_at < 20 and last_key == key:
+        # A direct @plus-one mention always gets an answer, even if it repeats
+        # a recent proposal's wording — the cooldown is only for ambient chatter.
+        if not force and last_at is not None and now - last_at < 20 and last_key == key:
             log.info("skip duplicate public plan %r", key[:60])
             return False
         constraints = self.store.constraints(room_id)
-        text = brain_adapter.suggest_public(proposal, constraints)
+        text = (
+            brain_adapter.direct_reply(proposal, constraints)
+            if force
+            else brain_adapter.suggest_public(proposal, constraints)
+        )
         if not text:
             log.info("no public suggestion for %r (%s constraints)", proposal[:80], len(constraints))
             return False
@@ -247,8 +265,11 @@ class RoomHub:
             return
         self._imagine_done.add(room_id)
         self._imagine_url[room_id] = url
+        await self._broadcast(room_id, {"type": "imagine", "url": url})
         if group_chat and self.linq:
-            await self.linq.send_link(url, chat_id=group_chat)
+            await self.linq.send_link(
+                url, chat_id=group_chat, caption="Here's a look at that plan:"
+            )
 
     async def _deliver_whisper(self, room_id: str, viewer: str, text: str) -> None:
         # Synthesize first so GET whisper.mp3 is ready when ingest returns.

@@ -16,8 +16,10 @@ log = logging.getLogger("plusone.brain")
 
 try:
     from brain.brain import (  # type: ignore
+        direct_reply as _brain_direct_reply,
         extract_constraints as _brain_extract,
         group_summary as _brain_summary,
+        looks_like_mention as _brain_mention,
         looks_like_proposal as _brain_proposal,
         should_whisper as _brain_should,
         write_whisper as _brain_write,
@@ -28,6 +30,8 @@ except Exception:  # pragma: no cover - missing /brain during isolated tests
     _brain_write = None
     _brain_should = None
     _brain_proposal = None
+    _brain_mention = None
+    _brain_direct_reply = None
 
 
 _BUDGET_RE = re.compile(r"\$\s*(\d{2,6})|(?:budget|afford|spend|cap)\D{0,12}(\d{2,6})", re.I)
@@ -75,6 +79,20 @@ def suggest_public(proposal: str, constraints) -> str | None:
     except Exception:
         _fn = None
     return _try(_fn, proposal, constraints)
+
+
+def looks_like_mention(text: str) -> bool:
+    result = _try(_brain_mention, text)
+    if result is not None:
+        return bool(result)
+    return "plus one" in (text or "").lower() or "plusone" in (text or "").lower()
+
+
+def direct_reply(proposal: str, constraints) -> str:
+    result = _try(_brain_direct_reply, proposal, constraints)
+    if result:
+        return result
+    return "Nothing's flagged yet — keep planning and I'll jump in if something looks off for someone."
 
 
 def _try(fn, *args):

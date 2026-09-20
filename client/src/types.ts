@@ -9,9 +9,10 @@ export type ClientToServer = {
 export type ServerToClient =
   | { type: 'whisper'; text: string }
   | { type: 'public'; speaker: string; text: string }
-  | { type: 'counter'; shared: number; total: number };
+  | { type: 'counter'; shared: number; total: number }
+  | { type: 'imagine'; url: string };
 
 export type LogLine =
   | { kind: 'public'; speaker: string; text: string }
   | { kind: 'whisper'; text: string }
-  | { kind: 'you'; visibility: string; text: string };
+  | { kind: 'you'; visibility: string; text: string; pending?: boolean };

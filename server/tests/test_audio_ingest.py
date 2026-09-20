@@ -220,6 +220,25 @@ def test_imagine_prompt_uses_public_suggestion(tmp_path, monkeypatch):
         assert "private:" not in captured[0].lower()
 
 
+def test_audio_endpoint_rejects_corrupt_m4a(tmp_path, monkeypatch):
+    monkeypatch.setenv("PLUSONE_DB", str(tmp_path / "plusone.db"))
+    monkeypatch.setenv("PLUSONE_STT", "1")
+    monkeypatch.setenv("MUSE_API_KEY", "test-key")
+
+    import server.main as main
+
+    reload(main)
+
+    fake_m4a = b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 40
+    with TestClient(main.app) as client:
+        response = client.post(
+            "/rooms/demo/audio",
+            data={"speaker": "sam", "visibility": "private:sam"},
+            files={"audio": ("u.m4a", fake_m4a, "audio/mp4")},
+        )
+        assert response.status_code == 400
+
+
 def test_still_prompt_never_hardcodes_picnic():
     prompt = still_prompt("a mid-range dinner downtown instead of the Alps")
     assert "picnic" not in prompt.lower()
