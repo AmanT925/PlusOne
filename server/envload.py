@@ -14,6 +14,7 @@ def load_plusone_env() -> None:
         load_dotenv = None
     if load_dotenv is not None:
         load_dotenv(root / ".env")
+        load_dotenv(root / "env")
         load_dotenv(Path(__file__).resolve().parent / ".env")
     if os.getenv("LINQ") and not os.getenv("LINQ_API_KEY"):
         os.environ["LINQ_API_KEY"] = os.environ["LINQ"]

@@ -162,7 +162,12 @@ async def post_audio(
         from server.stt import stt_enabled, transcribe_wav
         from server.wavutil import pcm16_to_wav
 
-        wav = blob if blob[:4] == b"RIFF" else pcm16_to_wav(blob)
+        if blob[:4] == b"RIFF":
+            wav = blob
+        elif blob[4:8] == b"ftyp" or blob[:3] == b"ID3":
+            raise HTTPException(415, "audio must be WAV (RIFF); m4a/mp3 need a transcript")
+        else:
+            wav = pcm16_to_wav(blob)
         if not stt_enabled():
             raise HTTPException(
                 503, "STT unavailable (no Muse key); pass transcript bypass"

@@ -67,3 +67,45 @@ export async function fetchImagineUrl(host: string, room: string): Promise<strin
 export function whisperAudioUrl(host: string, room: string, user: string): string {
   return `${httpBase(host)}/rooms/${encodeURIComponent(room)}/users/${encodeURIComponent(user)}/whisper.mp3?t=${Date.now()}`;
 }
+
+export type AudioIngest = {
+  id: string;
+  visibility: string;
+  text: string;
+  stt: string;
+};
+
+/** Hold-to-talk: WAV (or PCM16) → Muse STT → same ingest as a typed utterance. */
+export async function postRoomAudio(
+  host: string,
+  room: string,
+  speaker: string,
+  visibility: string,
+  fileUri: string,
+  transcript?: string,
+): Promise<AudioIngest> {
+  const form = new FormData();
+  form.append('speaker', speaker);
+  form.append('visibility', visibility);
+  if (transcript?.trim()) form.append('transcript', transcript.trim());
+
+  const name = fileUri.toLowerCase().includes('.wav') ? 'utterance.wav' : 'utterance.m4a';
+  const type = name.endsWith('.wav') ? 'audio/wav' : 'audio/mp4';
+  if (fileUri.startsWith('blob:') || fileUri.startsWith('data:')) {
+    const blob = await (await fetch(fileUri)).blob();
+    form.append('audio', blob, name);
+  } else {
+    form.append('audio', { uri: fileUri, name, type } as unknown as Blob);
+  }
+
+  const res = await fetch(`${httpBase(host)}/rooms/${encodeURIComponent(room)}/audio`, {
+    method: 'POST',
+    headers: NGROK_HEADERS,
+    body: form,
+  });
+  if (!res.ok) {
+    const detail = await res.text();
+    throw new Error(detail || `audio ${res.status}`);
+  }
+  return (await res.json()) as AudioIngest;
+}

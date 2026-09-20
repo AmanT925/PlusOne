@@ -14,4 +14,4 @@ export type ServerToClient =
 export type LogLine =
   | { kind: 'public'; speaker: string; text: string }
   | { kind: 'whisper'; text: string }
-  | { kind: 'you'; visibility: string; text: string };
+  | { kind: 'you'; visibility: string; text: string; pending?: boolean };
