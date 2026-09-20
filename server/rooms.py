@@ -27,9 +27,18 @@ class RoomHub:
         self._last_public_at: dict[str, float] = {}
         self._last_public_proposal: dict[str, str] = {}
         self._imagine_done: set[str] = set()
+        self._imagine_url: dict[str, str] = {}
+        self._whisper_mp3: dict[tuple[str, str], bytes] = {}
+        self._bg: set[asyncio.Task] = set()
 
     def default_room_id(self) -> str:
         return os.environ.get("PLUSONE_ROOM_ID", "demo")
+
+    def imagine_url(self, room_id: str) -> str | None:
+        return self._imagine_url.get(room_id)
+
+    def whisper_mp3(self, room_id: str, user: str) -> bytes | None:
+        return self._whisper_mp3.get((room_id, user))
 
     def _room_sockets(self, room_id: str) -> dict[str, WebSocket]:
         return self._sockets.setdefault(room_id, {})
@@ -39,7 +48,8 @@ class RoomHub:
         sockets = self._room_sockets(room_id)
         previous = sockets.get(user)
         sockets[user] = websocket
-        self.store.upsert_member(room_id, user)
+        if len(user.strip()) >= 3:
+            self.store.upsert_member(room_id, user)
         if previous is not None and previous is not websocket:
             try:
                 await previous.close()
@@ -56,11 +66,11 @@ class RoomHub:
     async def _replay_public(self, room_id: str, websocket: WebSocket) -> None:
         """Replay public history. Private text stays off the wire."""
         try:
-            for event in self.store.events(room_id):
-                if event.visibility == "public":
-                    await websocket.send_json(
-                        {"type": "public", "speaker": event.speaker, "text": event.text}
-                    )
+            public = [e for e in self.store.events(room_id) if e.visibility == "public"]
+            for event in public[-12:]:
+                await websocket.send_json(
+                    {"type": "public", "speaker": event.speaker, "text": event.text}
+                )
         except Exception:
             log.exception("replay failed")
 
@@ -86,12 +96,11 @@ class RoomHub:
                 room_id,
                 {"type": "public", "speaker": event.speaker, "text": event.text},
             )
-            # Public suggestion first: webhook timeouts used to kill ingest during LLM whispers.
             posted = False
             if brain_adapter.looks_like_proposal(event.text):
                 posted = await self._maybe_public_plan(room_id, event.text, now=ts)
             if not posted:
-                await self._maybe_whisper_all(room_id, trigger="public", now=ts)
+                self._spawn(self._maybe_whisper_all(room_id, trigger="public", now=ts))
         else:
             viewer = event.visibility.split(":", 1)[-1] if ":" in event.visibility else speaker
             if brain_adapter.looks_like_proposal(event.text):
@@ -99,10 +108,22 @@ class RoomHub:
                     room_id, event.text, now=ts, fallback_user=viewer
                 )
             else:
-                await self._maybe_whisper(room_id, viewer, trigger="private", now=ts)
+                self._spawn(self._maybe_whisper(room_id, viewer, trigger="private", now=ts))
 
         await self._broadcast_counter(room_id)
+        await self._drain()
         return event
+
+    def _spawn(self, coro) -> asyncio.Task:
+        task = asyncio.create_task(coro)
+        self._bg.add(task)
+        task.add_done_callback(self._bg.discard)
+        return task
+
+    async def _drain(self) -> None:
+        pending = [t for t in self._bg if not t.done()]
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
 
     async def _maybe_whisper_all(self, room_id: str, trigger: str, now: float) -> None:
         for user in self._known_users(room_id):
@@ -128,8 +149,7 @@ class RoomHub:
             return
 
         ctx = context_for(viewer, events, constraints, brain_adapter.group_summary)
-        # Public speech never receives this ctx; write_whisper only sees context_for output.
-        text = brain_adapter.write_whisper(ctx)
+        text = await asyncio.to_thread(brain_adapter.write_whisper, ctx)
         self.store.set_whisper_at(room_id, viewer, now)
         await self._deliver_whisper(room_id, viewer, text)
 
@@ -144,7 +164,8 @@ class RoomHub:
         last_at = self._last_public_at.get(room_id)
         last_key = self._last_public_proposal.get(room_id)
         if last_at is not None and now - last_at < 20 and last_key == key:
-            return True
+            log.info("skip duplicate public plan %r", key[:60])
+            return False
         constraints = self.store.constraints(room_id)
         text = brain_adapter.suggest_public(proposal, constraints)
         if not text:
@@ -168,6 +189,16 @@ class RoomHub:
         payload = {"type": "public", "speaker": "plus-one", "text": text}
         await self._broadcast(room_id, payload)
         self.store.append_event(room_id, time.time(), "plus-one", "public", text)
+        await self._linq_public_suggestion(room_id, text, fallback_user)
+        imagine = os.environ.get("PLUSONE_IMAGINE", "1").strip().lower()
+        if imagine not in ("0", "false", "no", "off"):
+            group_chat = self.store.group_chat_for(room_id)
+            self._spawn(self._maybe_imagine(room_id, group_chat, text))
+        _ = summary
+
+    async def _linq_public_suggestion(
+        self, room_id: str, text: str, fallback_user: str | None
+    ) -> None:
         sent = False
         group_chat = self.store.group_chat_for(room_id)
         if group_chat and self.linq:
@@ -175,9 +206,6 @@ class RoomHub:
             sent = await self.linq.send_text(text, chat_id=group_chat)
             if sent:
                 log.info("public suggestion sent to group %s", group_chat)
-                imagine = os.environ.get("PLUSONE_IMAGINE", "1").strip().lower()
-                if imagine not in ("0", "false", "no", "off"):
-                    asyncio.create_task(self._maybe_imagine(room_id, group_chat, text))
         if not sent and self.linq:
             targets: list[str] = []
             if fallback_user:
@@ -200,16 +228,15 @@ class RoomHub:
                 log.info("public suggestion sent via DM fallback")
             else:
                 log.warning("public suggestion not delivered over Linq")
-        _ = summary
 
-    async def _maybe_imagine(self, room_id: str, group_chat: str, suggestion: str) -> None:
+    async def _maybe_imagine(self, room_id: str, group_chat: str | None, suggestion: str) -> None:
         if room_id in self._imagine_done:
             return
-        if os.environ.get("PLUSONE_IMAGINE", "1").strip().lower() in ("0", "false", "no", "off"):
-            return
         try:
-            from server.xai_media import imagine_still
+            from server.xai_media import imagine_enabled, imagine_still
 
+            if not imagine_enabled():
+                return
             url = await imagine_still(
                 "Photoreal still of friends on a casual local hang, picnic or mid-range dinner, "
                 "warm evening light, no text, no logos, no readable signs."
@@ -217,10 +244,12 @@ class RoomHub:
         except Exception:
             log.exception("imagine failed")
             return
-        if not url or not self.linq:
+        if not url:
             return
         self._imagine_done.add(room_id)
-        await self.linq.send_link(url, chat_id=group_chat)
+        self._imagine_url[room_id] = url
+        if group_chat and self.linq:
+            await self.linq.send_link(url, chat_id=group_chat)
         _ = suggestion
 
     async def _deliver_whisper(self, room_id: str, viewer: str, text: str) -> None:
@@ -234,11 +263,22 @@ class RoomHub:
             if chat_id:
                 await self.linq.start_typing(chat_id)
             await self.linq.send_text(text, chat_id=chat_id, to=phone if not chat_id else None)
+        asyncio.create_task(self._fill_whisper_audio(room_id, viewer, text))
+
+    async def _fill_whisper_audio(self, room_id: str, viewer: str, text: str) -> None:
+        try:
+            from server.xai_media import speak_whisper
+
+            audio = await speak_whisper(text)
+            if audio:
+                self._whisper_mp3[(room_id, viewer)] = audio
+        except Exception:
+            log.exception("whisper tts failed")
 
     def _known_users(self, room_id: str) -> set[str]:
         users = set(self.store.members(room_id))
         users.update(self._room_sockets(room_id).keys())
-        return users
+        return {u for u in users if len(u) >= 3}
 
     def _counter_payload(self, room_id: str) -> dict[str, Any]:
         events = self.store.events(room_id)
@@ -279,13 +319,24 @@ async def websocket_loop(hub: RoomHub, room_id: str, user: str, websocket: WebSo
                 visibility = f"private:{user}"
             elif visibility != "public" and not visibility.startswith("private:"):
                 visibility = f"private:{user}"
-            await hub.ingest(room_id, user, visibility, text)
+            hub._spawn(_ingest_safe(hub, room_id, user, visibility, text))
     except WebSocketDisconnect:
         hub.disconnect(room_id, user, websocket)
+        await hub._drain()
     except Exception:
         log.exception("websocket error for %s in %s", user, room_id)
         hub.disconnect(room_id, user, websocket)
+        await hub._drain()
         try:
             await websocket.close()
         except Exception:
             pass
+
+
+async def _ingest_safe(
+    hub: RoomHub, room_id: str, user: str, visibility: str, text: str
+) -> None:
+    try:
+        await hub.ingest(room_id, user, visibility, text)
+    except Exception:
+        log.exception("ingest failed for %s in %s", user, room_id)

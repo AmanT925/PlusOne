@@ -8,6 +8,7 @@ when stream B still raises NotImplementedError.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -72,9 +73,55 @@ def hub() -> RoomHub:
     return app.state.hub
 
 
+_fixture_leaks: dict | None = None
+
+
+def _fixture_leak_summary() -> dict:
+    """Cached, template-only. Never call Muse/Grok on the poll path."""
+    global _fixture_leaks
+    if _fixture_leaks is not None:
+        return _fixture_leaks
+    from brain.leak_test import run as fixture_run
+
+    prev = os.environ.get("PLUSONE_LLM")
+    os.environ["PLUSONE_LLM"] = "0"
+    try:
+        result = fixture_run()
+        _fixture_leaks = {"attempts": result["attempts"], "leaks": result["leaks"]}
+    finally:
+        if prev is None:
+            os.environ.pop("PLUSONE_LLM", None)
+        else:
+            os.environ["PLUSONE_LLM"] = prev
+    return _fixture_leaks
+
+
 @app.get("/health")
 async def health():
-    return {"ok": True, "linq": bool(linq_api_key())}
+    return {
+        "ok": True,
+        "linq": bool(linq_api_key()),
+        "xai": bool(os.environ.get("XAI_API_KEY", "").strip()),
+    }
+
+
+@app.get("/rooms/{room_id}/media")
+async def room_media(room_id: str):
+    return {"imagine_url": hub().imagine_url(room_id)}
+
+
+@app.get("/rooms/{room_id}/users/{user}/whisper.mp3")
+async def whisper_audio(room_id: str, user: str):
+    from fastapi.responses import Response
+
+    data = hub().whisper_mp3(room_id, user)
+    if not data:
+        raise HTTPException(404, "no whisper audio yet")
+    return Response(
+        content=data,
+        media_type="audio/mpeg",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.get("/rooms/{room_id}/events")
@@ -110,15 +157,15 @@ async def post_utterance(room_id: str, body: dict):
 @app.get("/rooms/{room_id}/leaks")
 async def room_leaks(room_id: str):
     """Laptop judge screen: attempts vs leaks on this room + fixture harness."""
-    from brain.leak_test import run as fixture_run, scan_events
+    from brain.leak_test import scan_events
 
     events = app.state.store.events(room_id)
     constraints = app.state.store.constraints(room_id)
-    live = scan_events(events, constraints)
-    fixtures = fixture_run()
+    live = await asyncio.to_thread(scan_events, events, constraints)
+    fixtures = await asyncio.to_thread(_fixture_leak_summary)
     return {
         "room": live,
-        "fixtures": {"attempts": fixtures["attempts"], "leaks": fixtures["leaks"]},
+        "fixtures": fixtures,
     }
 
 

@@ -243,12 +243,12 @@ def should_whisper(state: Any) -> bool:
         return False
     if state.get("mid_sentence"):
         return False
+    if state.get("trigger") == "private":
+        return True
     now = float(state.get("now") or 0)
     last = state.get("last_whisper_at")
     if last is not None and now - float(last) < 20:
         return False
-    if state.get("trigger") == "private":
-        return True
     if not state.get("has_private"):
         return False
     return _conflicts(state)

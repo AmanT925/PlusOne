@@ -8,7 +8,7 @@ From the repo root (so `contracts` and `brain` import):
 
 ```bash
 pip install -r server/requirements.txt
-uvicorn server.main:app --reload --host 0.0.0.0 --port 8000
+python -m server
 ```
 
 SQLite log defaults to `server/plusone.db`. Override with `PLUSONE_DB`.

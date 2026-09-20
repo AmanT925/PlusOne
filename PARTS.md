@@ -1,15 +1,13 @@
 # Branches
 
-Integrated product lives on **`dev`**. The old `part-1-core` / `part-2-brain` / `part-3-client` streams were checklist-only and are **deleted** — their work is already on `dev`.
+Integrated product lives on **`dev`**. `/contracts` stays frozen.
 
-Remaining hackathon work (see [NEXT.md](NEXT.md)):
+| Cursor | Branch | Plan |
+|---|---|---|
+| Testing (this machine) | `dev` | [REMAINING.md](REMAINING.md) — verify Play voice + Linq |
+| Unused | `feat/cursor-3-voice` | [CURSOR-3.md](CURSOR-3.md) — STT, TTS play, Imagine prompt |
+| UI | `feat/client-ux` | [PART-C.md](PART-C.md) — merge after Cursor 3 is on `origin/dev` |
 
-| Part | Branch | Plan | Owns |
-|---|---|---|---|
-| A | `feat/intelligence` | [PART-A.md](PART-A.md) | LLM whispers, group suggestion, tokens, leak API |
-| B | `feat/voice-sponsors` | [PART-B.md](PART-B.md) | Grok Voice or Imagine in the product |
-| C | `feat/client-ux` | [PART-C.md](PART-C.md) | Expo UI/UX revamp |
+`feat/voice-sponsors` is a **file source** for STT/Korvo. Do not merge it wholesale onto `dev`.
 
-Merge back into `dev` for the demo. `/contracts` stays frozen.
-
-**If asked to work on a part:** `git checkout feat/…` from the table (created from `dev`). Don’t edit `/contracts`.
+Old `part-1-core` / `part-2-brain` / `part-3-client` / `feat/intelligence` work is already on `dev`.

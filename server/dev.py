@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import signal
+import socket
 import subprocess
 import sys
 import time
@@ -110,6 +111,17 @@ def _free_port(port: int) -> None:
         time.sleep(0.6)
 
 
+def _lan_ip() -> str:
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.connect(("8.8.8.8", 80))
+        ip = sock.getsockname()[0]
+        sock.close()
+        return str(ip)
+    except OSError:
+        return ""
+
+
 def main() -> int:
     os.chdir(ROOT)
     load_plusone_env()
@@ -170,16 +182,7 @@ def main() -> int:
     _free_port(8000)
     print("Starting Plus One on http://0.0.0.0:8000 …")
     uvicorn_proc = subprocess.Popen(
-        [
-            sys.executable,
-            "-m",
-            "uvicorn",
-            "server.main:app",
-            "--host",
-            "0.0.0.0",
-            "--port",
-            "8000",
-        ],
+        [sys.executable, "-m", "server"],
         cwd=ROOT,
     )
 
@@ -194,7 +197,10 @@ def main() -> int:
         signal.signal(signal.SIGTERM, _stop)
 
     print()
-    print("Ready. Leave this window open. Expo is NOT needed for iMessage.")
+    print("Ready. Leave this window open.")
+    lan = _lan_ip()
+    if lan:
+        print(f"Expo phones: host {lan}:8000  (not localhost)")
     print("Text +1 (949) 278-3794  →  I can't do more than $150")
     print("Inspector: http://127.0.0.1:4040")
     print("Events:    http://127.0.0.1:8000/rooms/demo/events")

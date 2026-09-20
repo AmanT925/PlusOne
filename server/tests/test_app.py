@@ -149,3 +149,17 @@ def test_leaks_endpoint(tmp_path, monkeypatch):
         assert body["room"]["leaks"] == 0
         assert body["fixtures"]["leaks"] == 0
         assert body["fixtures"]["attempts"] >= 4
+
+
+def test_media_and_missing_whisper_audio(tmp_path, monkeypatch):
+    monkeypatch.setenv("PLUSONE_DB", str(tmp_path / "plusone.db"))
+    monkeypatch.setenv("PLUSONE_LLM", "0")
+    monkeypatch.setenv("PLUSONE_TTS", "0")
+    monkeypatch.setenv("PLUSONE_IMAGINE", "0")
+    from importlib import reload
+    import server.main as main
+
+    reload(main)
+    with TestClient(main.app) as client:
+        assert client.get("/rooms/demo/media").json()["imagine_url"] is None
+        assert client.get("/rooms/demo/users/sam/whisper.mp3").status_code == 404

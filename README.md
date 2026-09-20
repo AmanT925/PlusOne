@@ -19,7 +19,7 @@ From the repo root. Put your Linq key in a gitignored `.env` as `LINQ=...` or `L
 
 ```bash
 pip install -r server/requirements.txt
-uvicorn server.main:app --reload --host 0.0.0.0 --port 8000
+python -m server
 ```
 
 ```bash

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import type { ClientToServer, ServerToClient } from './types';
+import { wsUrl } from './http';
 
 type Handlers = {
   onMessage: (msg: ServerToClient) => void;
@@ -12,60 +13,119 @@ export function usePlusOneSocket(
   handlers: Handlers,
 ) {
   const wsRef = useRef<WebSocket | null>(null);
+  const queueRef = useRef<ClientToServer[]>([]);
   const handlersRef = useRef(handlers);
   handlersRef.current = handlers;
+
+  const flush = (socket: WebSocket) => {
+    while (queueRef.current.length && socket.readyState === WebSocket.OPEN) {
+      const next = queueRef.current.shift();
+      if (next) socket.send(JSON.stringify(next));
+    }
+  };
 
   useEffect(() => {
     if (!enabled || !url) {
       handlersRef.current.onStatus('off');
+      queueRef.current = [];
       return;
     }
-    handlersRef.current.onStatus('connecting');
-    let closed = false;
-    let socket: WebSocket;
-    try {
-      socket = new WebSocket(url);
-    } catch {
-      handlersRef.current.onStatus('error');
-      return;
-    }
-    wsRef.current = socket;
-    socket.onopen = () => {
-      if (!closed) handlersRef.current.onStatus('live');
+
+    let stopped = false;
+    let retry: ReturnType<typeof setTimeout> | null = null;
+    let handshake: ReturnType<typeof setTimeout> | null = null;
+    let ping: ReturnType<typeof setInterval> | null = null;
+    let attempt = 0;
+    let generation = 0;
+
+    const clearTimers = () => {
+      if (retry) clearTimeout(retry);
+      if (handshake) clearTimeout(handshake);
+      if (ping) clearInterval(ping);
+      retry = null;
+      handshake = null;
+      ping = null;
     };
-    socket.onmessage = (event) => {
+
+    const connect = () => {
+      if (stopped) return;
+      const gen = ++generation;
+      clearTimers();
+      handlersRef.current.onStatus('connecting');
+      let socket: WebSocket;
       try {
-        const data = JSON.parse(String(event.data)) as ServerToClient;
-        handlersRef.current.onMessage(data);
+        socket = new WebSocket(url);
       } catch {
-        // ignore malformed
+        handlersRef.current.onStatus('error');
+        return;
       }
+      wsRef.current = socket;
+
+      handshake = setTimeout(() => {
+        if (gen !== generation || stopped) return;
+        if (socket.readyState !== WebSocket.OPEN) socket.close();
+      }, 10000);
+
+      socket.onopen = () => {
+        if (gen !== generation) {
+          socket.close();
+          return;
+        }
+        if (handshake) clearTimeout(handshake);
+        attempt = 0;
+        handlersRef.current.onStatus('live');
+        flush(socket);
+        ping = setInterval(() => {
+          if (socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ type: 'ping' }));
+          }
+        }, 15000);
+      };
+      socket.onmessage = (event) => {
+        if (gen !== generation) return;
+        try {
+          const data = JSON.parse(String(event.data)) as ServerToClient;
+          handlersRef.current.onMessage(data);
+        } catch {
+          // ignore malformed
+        }
+      };
+      socket.onerror = () => {
+        if (gen !== generation) return;
+      };
+      socket.onclose = () => {
+        if (gen !== generation) return;
+        clearTimers();
+        if (wsRef.current === socket) wsRef.current = null;
+        if (stopped) return;
+        attempt += 1;
+        handlersRef.current.onStatus(attempt > 2 ? 'error' : 'connecting');
+        retry = setTimeout(connect, Math.min(800 * attempt, 4000));
+      };
     };
-    socket.onerror = () => handlersRef.current.onStatus('error');
-    socket.onclose = () => {
-      if (!closed) handlersRef.current.onStatus('error');
-    };
+
+    connect();
     return () => {
-      closed = true;
+      stopped = true;
+      generation += 1;
+      clearTimers();
+      const socket = wsRef.current;
       wsRef.current = null;
-      socket.close();
+      if (socket && socket.readyState < WebSocket.CLOSING) socket.close();
     };
   }, [url, enabled]);
 
   const send = useCallback((msg: ClientToServer) => {
     const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) return false;
-    ws.send(JSON.stringify(msg));
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(msg));
+      return true;
+    }
+    if (queueRef.current.length < 20) queueRef.current.push(msg);
     return true;
   }, []);
 
   return send;
 }
 
-export function wsUrl(host: string, room: string, user: string): string {
-  const trimmed = host.replace(/\/$/, '');
-  const scheme = trimmed.startsWith('wss://') || trimmed.startsWith('ws://')
-    ? trimmed
-    : `ws://${trimmed}`;
-  return `${scheme}/ws/${encodeURIComponent(room)}/${encodeURIComponent(user)}`;
-}
+export { wsUrl };
