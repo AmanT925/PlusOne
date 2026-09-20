@@ -18,6 +18,7 @@ import {
 import { fakeReplies } from './src/fakeServer';
 import { fetchImagineUrl, fetchLeaks, whisperAudioUrl, wsUrl } from './src/http';
 import { playMp3 } from './src/playAudio';
+import { VoiceRecorder } from './src/VoiceRecorder';
 import { usePlusOneSocket } from './src/usePlusOneSocket';
 import type { LogLine, ServerToClient } from './src/types';
 
@@ -265,6 +266,18 @@ export default function App() {
           ))}
         </ScrollView>
 
+        {!fakeMode && (
+          <VoiceRecorder
+            key={`${identity.host}/${identity.room}/${identity.user}`}
+            host={identity.host} room={identity.room} user={identity.user}
+            enabled={status === 'live'}
+            onTranscript={(body, visibility) => {
+              if (visibility !== 'public') {
+                setLog((prev) => [...prev, { kind: 'you', visibility, text: body }]);
+              }
+            }}
+          />
+        )}
         <TextInput
           style={styles.composer}
           value={text}

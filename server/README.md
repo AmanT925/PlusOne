@@ -13,6 +13,19 @@ python -m server
 
 SQLite log defaults to `server/plusone.db`. Override with `PLUSONE_DB`.
 
+## Phone microphone uploads
+
+`POST /rooms/{room_id}/audio` accepts multipart `speaker`, `visibility`, and
+`audio`. Expo records AAC/M4A; PyAV decodes it into mono, 16-bit, 24 kHz WAV
+before calling Muse Voice Transcribe. WAV and explicitly named `.pcm`/`.raw`
+(16 kHz PCM16 mono) uploads are also supported. Install the updated requirements
+and restart the backend after upgrading. No system FFmpeg executable is needed.
+
+Configure `MUSE_TRANSCRIBE_KEY`, `MUSE_API_KEY`, or `MODEL_API_KEY` on the server.
+`PLUSONE_STT=0` disables transcription. Invalid recordings return 400; uploads
+over 10 MiB return 413. Optional `transcript` remains a development bypass.
+See [phone testing instructions](../client/README.md).
+
 ## Websocket (stream C)
 
 - Default room: `ws://HOST/ws/{user}`

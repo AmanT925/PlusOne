@@ -152,7 +152,12 @@ async def post_audio(
     audio: UploadFile = File(...),
 ):
     """Hold-to-talk: Muse STT then the same ingest path as typed utterances."""
-    blob = await audio.read()
+    speaker = speaker.strip()
+    if not speaker:
+        raise HTTPException(400, "speaker is required")
+    blob = await audio.read(10 * 1024 * 1024 + 1)
+    if len(blob) > 10 * 1024 * 1024:
+        raise HTTPException(413, "Recording is too large. Keep it under 60 seconds.")
     if not blob:
         raise HTTPException(400, "audio is required")
 
@@ -160,13 +165,16 @@ async def post_audio(
     stt_mode = "bypass"
     if not text:
         from server.stt import stt_enabled, transcribe_wav
-        from server.wavutil import pcm16_to_wav
-
-        wav = blob if blob[:4] == b"RIFF" else pcm16_to_wav(blob)
+        from server.audio_decode import muse_wav
+        from starlette.concurrency import run_in_threadpool
         if not stt_enabled():
             raise HTTPException(
                 503, "STT unavailable (no Muse key); pass transcript bypass"
             )
+        try:
+            wav = await run_in_threadpool(muse_wav, blob, audio.filename or "")
+        except ValueError:
+            raise HTTPException(400, "Invalid or too-long recording. Record a new clip under 60 seconds.")
         try:
             text = await transcribe_wav(wav)
         except Exception as exc:

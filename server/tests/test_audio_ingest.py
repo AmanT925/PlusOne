@@ -12,6 +12,77 @@ def test_pcm16_to_wav_header():
     assert wav[8:12] == b"WAVE"
 
 
+def phone_recording():
+    """Real AAC in an MP4 container, matching Expo's native recording preset."""
+    import io
+    import av
+
+    target = io.BytesIO()
+    with av.open(target, mode="w", format="mp4") as output:
+        stream = output.add_stream("aac", rate=44100)
+        stream.layout = "mono"
+        frame = av.AudioFrame(format="fltp", layout="mono", samples=44100)
+        frame.sample_rate = 44100
+        frame.planes[0].update(bytes(frame.planes[0].buffer_size))
+        for packet in stream.encode(frame):
+            output.mux(packet)
+        for packet in stream.encode(None):
+            output.mux(packet)
+    return target.getvalue()
+
+
+def test_phone_audio_transcribed_and_routed_privately(tmp_path, monkeypatch):
+    import io
+    import wave
+    import server.main as main
+
+    monkeypatch.setenv("PLUSONE_DB", str(tmp_path / "voice.db"))
+    reload(main)
+    monkeypatch.setattr("server.stt.stt_enabled", lambda: True)
+
+    async def transcribe(wav_bytes):
+        with wave.open(io.BytesIO(wav_bytes)) as wav:
+            assert wav.getnchannels() == 1
+            assert wav.getsampwidth() == 2
+            assert wav.getframerate() == 24000
+            assert 23000 < wav.getnframes() < 26000
+        return "I cannot spend more than $150"
+
+    monkeypatch.setattr("server.stt.transcribe_wav", transcribe)
+    with TestClient(main.app) as client:
+        response = client.post(
+            "/rooms/voice/audio",
+            data={"speaker": "sam", "visibility": "private:someone-else"},
+            files={"audio": ("recording.m4a", phone_recording(), "audio/mp4")},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["stt"] == "muse"
+        assert response.json()["visibility"] == "private:sam"
+        events = client.get("/rooms/voice/events").json()
+        assert events[0]["text"] == "I cannot spend more than $150"
+        assert events[0]["visibility"] == "private:sam"
+
+
+def test_invalid_recording_never_reaches_muse(tmp_path, monkeypatch):
+    import server.main as main
+
+    monkeypatch.setenv("PLUSONE_DB", str(tmp_path / "invalid.db"))
+    reload(main)
+    monkeypatch.setattr("server.stt.stt_enabled", lambda: True)
+
+    async def unexpected(_):
+        raise AssertionError("Invalid input must not be sent to Muse")
+
+    monkeypatch.setattr("server.stt.transcribe_wav", unexpected)
+    with TestClient(main.app) as client:
+        response = client.post(
+            "/rooms/voice/audio", data={"speaker": "sam"},
+            files={"audio": ("recording.m4a", b"not audio", "audio/mp4")},
+        )
+        assert response.status_code == 400
+        assert client.get("/rooms/voice/events").json() == []
+
+
 def test_audio_endpoint_transcript_bypass(tmp_path, monkeypatch):
     monkeypatch.setenv("PLUSONE_DB", str(tmp_path / "plusone.db"))
     monkeypatch.setenv("PLUSONE_LLM", "0")
