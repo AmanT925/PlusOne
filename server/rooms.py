@@ -233,14 +233,13 @@ class RoomHub:
         if room_id in self._imagine_done:
             return
         try:
-            from server.xai_media import imagine_enabled, imagine_still
+            from server.xai_media import imagine_enabled, imagine_still, still_prompt
 
             if not imagine_enabled():
                 return
-            url = await imagine_still(
-                "Photoreal still of friends on a casual local hang, picnic or mid-range dinner, "
-                "warm evening light, no text, no logos, no readable signs."
-            )
+
+            prompt = still_prompt(suggestion)
+            url = await imagine_still(prompt)
         except Exception:
             log.exception("imagine failed")
             return
@@ -250,9 +249,10 @@ class RoomHub:
         self._imagine_url[room_id] = url
         if group_chat and self.linq:
             await self.linq.send_link(url, chat_id=group_chat)
-        _ = suggestion
 
     async def _deliver_whisper(self, room_id: str, viewer: str, text: str) -> None:
+        # Synthesize first so GET whisper.mp3 is ready when ingest returns.
+        await self._fill_whisper_audio(room_id, viewer, text)
         payload = {"type": "whisper", "text": text}
         socket = self._room_sockets(room_id).get(viewer)
         if socket is not None:
@@ -263,7 +263,9 @@ class RoomHub:
             if chat_id:
                 await self.linq.start_typing(chat_id)
             await self.linq.send_text(text, chat_id=chat_id, to=phone if not chat_id else None)
-        asyncio.create_task(self._fill_whisper_audio(room_id, viewer, text))
+            audio = self._whisper_mp3.get((room_id, viewer))
+            if audio:
+                await self._linq_voice_memo(chat_id, phone, audio)
 
     async def _fill_whisper_audio(self, room_id: str, viewer: str, text: str) -> None:
         try:
@@ -274,6 +276,20 @@ class RoomHub:
                 self._whisper_mp3[(room_id, viewer)] = audio
         except Exception:
             log.exception("whisper tts failed")
+
+    async def _linq_voice_memo(
+        self, chat_id: str | None, phone: str | None, audio: bytes
+    ) -> None:
+        """Best-effort Linq audio part. Never blocks ingest (caller already has text)."""
+        if not self.linq:
+            return
+        send_audio = getattr(self.linq, "send_audio", None)
+        if not callable(send_audio):
+            return
+        try:
+            await send_audio(audio, chat_id=chat_id, to=phone if not chat_id else None)
+        except Exception:
+            log.warning("linq voice memo skipped")
 
     def _known_users(self, room_id: str) -> set[str]:
         users = set(self.store.members(room_id))
@@ -319,7 +335,7 @@ async def websocket_loop(hub: RoomHub, room_id: str, user: str, websocket: WebSo
                 visibility = f"private:{user}"
             elif visibility != "public" and not visibility.startswith("private:"):
                 visibility = f"private:{user}"
-            hub._spawn(_ingest_safe(hub, room_id, user, visibility, text))
+            await _ingest_safe(hub, room_id, user, visibility, text)
     except WebSocketDisconnect:
         hub.disconnect(room_id, user, websocket)
         await hub._drain()

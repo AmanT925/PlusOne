@@ -1,0 +1,156 @@
+from importlib import reload
+
+from fastapi.testclient import TestClient
+
+from server.wavutil import pcm16_to_wav
+from server.xai_media import still_prompt
+
+
+def test_pcm16_to_wav_header():
+    wav = pcm16_to_wav(b"\x00\x00" * 10, sample_rate=16000)
+    assert wav[:4] == b"RIFF"
+    assert wav[8:12] == b"WAVE"
+
+
+def test_audio_endpoint_transcript_bypass(tmp_path, monkeypatch):
+    monkeypatch.setenv("PLUSONE_DB", str(tmp_path / "plusone.db"))
+    monkeypatch.setenv("PLUSONE_LLM", "0")
+    monkeypatch.setenv("PLUSONE_TTS", "0")
+    monkeypatch.setenv("PLUSONE_IMAGINE", "0")
+    monkeypatch.setenv("PLUSONE_STT", "0")
+
+    import server.main as main
+
+    reload(main)
+
+    wav = pcm16_to_wav(b"\x00\x00" * 160, sample_rate=16000)
+    with TestClient(main.app) as client:
+        response = client.post(
+            "/rooms/demo/audio",
+            data={
+                "speaker": "sam",
+                "visibility": "private:sam",
+                "transcript": "I can't do more than $150",
+            },
+            files={"audio": ("u.wav", wav, "audio/wav")},
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["text"] == "I can't do more than $150"
+        assert body["visibility"] == "private:sam"
+        assert body["stt"] == "bypass"
+
+        events = client.get("/rooms/demo/events").json()
+        assert events[-1]["text"] == "I can't do more than $150"
+        assert events[-1]["visibility"] == "private:sam"
+
+
+def test_audio_endpoint_stt_off_without_transcript(tmp_path, monkeypatch):
+    monkeypatch.setenv("PLUSONE_DB", str(tmp_path / "plusone.db"))
+    monkeypatch.setenv("PLUSONE_STT", "0")
+    monkeypatch.delenv("MUSE_API_KEY", raising=False)
+    monkeypatch.delenv("MUSE_TRANSCRIBE_KEY", raising=False)
+    monkeypatch.delenv("MODEL_API_KEY", raising=False)
+
+    import server.main as main
+
+    reload(main)
+
+    wav = pcm16_to_wav(b"\x00\x00" * 160, sample_rate=16000)
+    with TestClient(main.app) as client:
+        response = client.post(
+            "/rooms/demo/audio",
+            data={"speaker": "sam", "visibility": "private:sam"},
+            files={"audio": ("u.wav", wav, "audio/wav")},
+        )
+        assert response.status_code == 503
+
+
+def test_whisper_mp3_after_private_cap(tmp_path, monkeypatch):
+    monkeypatch.setenv("PLUSONE_DB", str(tmp_path / "plusone.db"))
+    monkeypatch.setenv("PLUSONE_LLM", "0")
+    monkeypatch.setenv("PLUSONE_TTS", "1")
+    monkeypatch.setenv("PLUSONE_IMAGINE", "0")
+    monkeypatch.setenv("XAI_API_KEY", "test-key")
+
+    fake_mp3 = b"ID3" + b"\x00" * 80
+
+    async def fake_speak(text: str):
+        assert text
+        return fake_mp3
+
+    import server.main as main
+
+    reload(main)
+    monkeypatch.setattr("server.xai_media.speak_whisper", fake_speak)
+
+    with TestClient(main.app) as client:
+        posted = client.post(
+            "/rooms/demo/utterances",
+            json={
+                "speaker": "nirvan",
+                "visibility": "private:nirvan",
+                "text": "I can't do more than $150",
+            },
+        )
+        assert posted.status_code == 200, posted.text
+        audio = client.get("/rooms/demo/users/nirvan/whisper.mp3")
+        assert audio.status_code == 200
+        assert audio.headers["content-type"].startswith("audio/mpeg")
+        assert audio.content == fake_mp3
+
+
+def test_imagine_prompt_uses_public_suggestion(tmp_path, monkeypatch):
+    monkeypatch.setenv("PLUSONE_DB", str(tmp_path / "plusone.db"))
+    monkeypatch.setenv("PLUSONE_LLM", "0")
+    monkeypatch.setenv("PLUSONE_TTS", "0")
+    monkeypatch.setenv("PLUSONE_IMAGINE", "1")
+    monkeypatch.setenv("XAI_API_KEY", "test-key")
+
+    captured: list[str] = []
+
+    async def fake_imagine(prompt: str):
+        captured.append(prompt)
+        return "https://example.test/still.png"
+
+    import server.main as main
+
+    reload(main)
+    monkeypatch.setattr("server.xai_media.imagine_still", fake_imagine)
+
+    with TestClient(main.app) as client:
+        client.post(
+            "/rooms/demo/utterances",
+            json={
+                "speaker": "sam",
+                "visibility": "private:sam",
+                "text": "I can't do more than $150",
+            },
+        )
+        table = client.post(
+            "/rooms/demo/utterances",
+            json={
+                "speaker": "maya",
+                "visibility": "public",
+                "text": "let's go to Switzerland this weekend at a fancy resort",
+            },
+        )
+        assert table.status_code == 200, table.text
+        events = client.get("/rooms/demo/events").json()
+        suggestion = next(
+            e["text"] for e in events if e["speaker"] == "plus-one" and e["visibility"] == "public"
+        )
+        media = client.get("/rooms/demo/media").json()
+        assert media["imagine_url"] == "https://example.test/still.png"
+        assert captured, "imagine_still should run with the public suggestion"
+        assert suggestion[:120] in captured[0]
+        assert "picnic" not in captured[0].lower() or "picnic" in suggestion.lower()
+        assert "sam" not in captured[0].lower()
+        assert "private:" not in captured[0].lower()
+
+
+def test_still_prompt_never_hardcodes_picnic():
+    prompt = still_prompt("a mid-range dinner downtown instead of the Alps")
+    assert "picnic" not in prompt.lower()
+    assert "mid-range dinner downtown" in prompt
+    assert "sam" not in still_prompt("Sam cannot spend more than $150").lower()

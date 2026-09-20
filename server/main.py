@@ -15,7 +15,7 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Header, HTTPException, Request, WebSocket
+from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 
@@ -98,10 +98,13 @@ def _fixture_leak_summary() -> dict:
 
 @app.get("/health")
 async def health():
+    from server.stt import stt_enabled
+
     return {
         "ok": True,
         "linq": bool(linq_api_key()),
         "xai": bool(os.environ.get("XAI_API_KEY", "").strip()),
+        "stt": stt_enabled(),
     }
 
 
@@ -138,6 +141,55 @@ async def list_events(room_id: str):
         }
         for e in events
     ]
+
+
+@app.post("/rooms/{room_id}/audio")
+async def post_audio(
+    room_id: str,
+    speaker: str = Form(...),
+    visibility: str = Form("public"),
+    transcript: str | None = Form(None),
+    audio: UploadFile = File(...),
+):
+    """Hold-to-talk: Muse STT then the same ingest path as typed utterances."""
+    blob = await audio.read()
+    if not blob:
+        raise HTTPException(400, "audio is required")
+
+    text = (transcript or "").strip()
+    stt_mode = "bypass"
+    if not text:
+        from server.stt import stt_enabled, transcribe_wav
+        from server.wavutil import pcm16_to_wav
+
+        wav = blob if blob[:4] == b"RIFF" else pcm16_to_wav(blob)
+        if not stt_enabled():
+            raise HTTPException(
+                503, "STT unavailable (no Muse key); pass transcript bypass"
+            )
+        try:
+            text = await transcribe_wav(wav)
+        except Exception as exc:
+            log.warning("stt failed: %s", exc)
+            raise HTTPException(502, "STT failed") from exc
+        stt_mode = "muse"
+
+    if not text:
+        raise HTTPException(400, "empty transcript")
+    if not visibility:
+        visibility = "public"
+    if visibility.startswith("private:") and visibility != f"private:{speaker}":
+        visibility = f"private:{speaker}"
+    elif visibility != "public" and not visibility.startswith("private:"):
+        visibility = f"private:{speaker}"
+
+    event = await hub().ingest(room_id, speaker, visibility, text)
+    return {
+        "id": event.id,
+        "visibility": event.visibility,
+        "text": text,
+        "stt": stt_mode,
+    }
 
 
 @app.post("/rooms/{room_id}/utterances")
