@@ -22,6 +22,7 @@ try:
         looks_like_mention as _brain_mention,
         looks_like_proposal as _brain_proposal,
         should_whisper as _brain_should,
+        wants_image as _brain_wants_image,
         write_whisper as _brain_write,
     )
 except Exception:  # pragma: no cover - missing /brain during isolated tests
@@ -32,6 +33,7 @@ except Exception:  # pragma: no cover - missing /brain during isolated tests
     _brain_proposal = None
     _brain_mention = None
     _brain_direct_reply = None
+    _brain_wants_image = None
 
 
 _BUDGET_RE = re.compile(r"\$\s*(\d{2,6})|(?:budget|afford|spend|cap)\D{0,12}(\d{2,6})", re.I)
@@ -93,6 +95,14 @@ def direct_reply(proposal: str, constraints) -> str:
     if result:
         return result
     return "Nothing's flagged yet — keep planning and I'll jump in if something looks off for someone."
+
+
+def wants_image(text: str) -> bool:
+    result = _try(_brain_wants_image, text)
+    if result is not None:
+        return bool(result)
+    t = (text or "").lower()
+    return any(w in t for w in ("image", "picture", "photo", "pic", "render", "visual"))
 
 
 def _try(fn, *args):

@@ -108,7 +108,10 @@ class RoomHub:
             )
             posted = False
             mentioned = brain_adapter.looks_like_mention(event.text)
-            if mentioned or brain_adapter.looks_like_proposal(event.text):
+            if mentioned and brain_adapter.wants_image(event.text):
+                self._spawn(self._on_demand_image(room_id, event.text))
+                posted = True
+            elif mentioned or brain_adapter.looks_like_proposal(event.text):
                 posted = await self._maybe_public_plan(room_id, event.text, now=ts, force=mentioned)
             if not posted:
                 self._spawn(self._maybe_whisper_all(room_id, trigger="public", now=ts))
@@ -247,8 +250,26 @@ class RoomHub:
             else:
                 log.warning("public suggestion not delivered over Linq")
 
-    async def _maybe_imagine(self, room_id: str, group_chat: str | None, suggestion: str) -> None:
-        if room_id in self._imagine_done:
+    async def _on_demand_image(self, room_id: str, requester_text: str) -> None:
+        """@plus-one + 'image/picture/...' — bypasses the one-shot limit, with a quick ack."""
+        ack = "On it — generating a picture now."
+        await self._broadcast(room_id, {"type": "public", "speaker": "plus-one", "text": ack})
+        self.store.append_event(room_id, time.time(), "plus-one", "public", ack)
+        group_chat = self.store.group_chat_for(room_id)
+        if group_chat and self.linq:
+            await self.linq.start_typing(group_chat)
+            await self.linq.send_text(ack, chat_id=group_chat)
+        events = self.store.events(room_id)
+        last_public = next(
+            (e.text for e in reversed(events) if e.visibility == "public" and e.speaker != "plus-one"),
+            requester_text,
+        )
+        await self._maybe_imagine(room_id, group_chat, last_public, force=True)
+
+    async def _maybe_imagine(
+        self, room_id: str, group_chat: str | None, suggestion: str, force: bool = False
+    ) -> None:
+        if not force and room_id in self._imagine_done:
             return
         try:
             from server.xai_media import imagine_enabled, imagine_still, still_prompt
