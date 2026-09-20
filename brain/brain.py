@@ -58,6 +58,7 @@ _CONSTRAINT_CUE = re.compile(
     re.I,
 )
 _MENTION_RE = re.compile(r"@?\bplus[\s-]?one\b", re.I)
+_IMAGE_REQUEST_RE = re.compile(r"\b(image|picture|photo|pic|render|visual)\b", re.I)
 
 
 def looks_like_proposal(text: str) -> bool:
@@ -208,6 +209,11 @@ def _clip_whisper(text: str) -> str:
 def looks_like_mention(text: str) -> bool:
     """True when someone directly addresses the bot by name in the table thread."""
     return bool(_MENTION_RE.search((text or "").strip()))
+
+
+def wants_image(text: str) -> bool:
+    """True when a direct mention also asks for a picture, on top of looks_like_mention."""
+    return bool(_IMAGE_REQUEST_RE.search((text or "").strip()))
 
 
 def direct_reply(proposal: str, constraints: list[Constraint]) -> str:
